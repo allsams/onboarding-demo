@@ -995,6 +995,376 @@ function drawParticles(vpMat) {
     gl.useProgram(prog);
 }
 
+// ---- SOUND ENGINE (Web Audio API - fully synthesized) ----
+let audioCtx = null;
+let soundEnabled = false;
+
+// Persistent nodes for continuous sounds
+let engineOsc = null, engineGain = null;
+let driftNoise = null, driftGain = null, driftFilter = null;
+
+function initAudio() {
+    if (audioCtx) { audioCtx.resume(); return; }
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    soundEnabled = true;
+}
+
+// --- Continuous engine sound ---
+function startEngineSound() {
+    if (!audioCtx) return;
+    // Two detuned sawtooth oscillators for a richer engine tone
+    engineOsc = audioCtx.createOscillator();
+    const engineOsc2 = audioCtx.createOscillator();
+    engineGain = audioCtx.createGain();
+    const filter = audioCtx.createBiquadFilter();
+
+    engineOsc.type = 'sawtooth';
+    engineOsc2.type = 'sawtooth';
+    engineOsc.frequency.value = 60;
+    engineOsc2.frequency.value = 62;
+    engineGain.gain.value = 0;
+    filter.type = 'lowpass';
+    filter.frequency.value = 400;
+    filter.Q.value = 2;
+
+    engineOsc.connect(filter);
+    engineOsc2.connect(filter);
+    filter.connect(engineGain);
+    engineGain.connect(audioCtx.destination);
+
+    engineOsc.start();
+    engineOsc2.start();
+    engineOsc._osc2 = engineOsc2;
+    engineOsc._filter = filter;
+}
+
+function updateEngineSound(speed, topSpeed) {
+    if (!engineOsc || !audioCtx) return;
+    const ratio = clamp(Math.abs(speed) / topSpeed, 0, 1);
+    const freq = 55 + ratio * 180;
+    const vol = 0.04 + ratio * 0.10;
+    const t = audioCtx.currentTime;
+    engineOsc.frequency.setTargetAtTime(freq, t, 0.05);
+    if (engineOsc._osc2) engineOsc._osc2.frequency.setTargetAtTime(freq * 1.01, t, 0.05);
+    engineGain.gain.setTargetAtTime(vol, t, 0.05);
+    engineOsc._filter.frequency.setTargetAtTime(300 + ratio * 800, t, 0.05);
+}
+
+function stopEngineSound() {
+    if (!engineOsc) return;
+    try {
+        engineOsc.stop();
+        if (engineOsc._osc2) engineOsc._osc2.stop();
+    } catch(e) {}
+    engineOsc = null; engineGain = null;
+}
+
+// --- Drift / tire squeal ---
+function startDriftSound() {
+    if (!audioCtx || driftNoise) return;
+    // White noise through a bandpass filter for tire squeal
+    const bufferSize = audioCtx.sampleRate * 2;
+    const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+
+    driftNoise = audioCtx.createBufferSource();
+    driftNoise.buffer = buffer;
+    driftNoise.loop = true;
+
+    driftFilter = audioCtx.createBiquadFilter();
+    driftFilter.type = 'bandpass';
+    driftFilter.frequency.value = 3000;
+    driftFilter.Q.value = 5;
+
+    driftGain = audioCtx.createGain();
+    driftGain.gain.value = 0;
+
+    driftNoise.connect(driftFilter);
+    driftFilter.connect(driftGain);
+    driftGain.connect(audioCtx.destination);
+    driftNoise.start();
+}
+
+function updateDriftSound(isDrifting, speed) {
+    if (!driftGain || !audioCtx) return;
+    const t = audioCtx.currentTime;
+    if (isDrifting && speed > 15) {
+        const vol = clamp((speed - 15) / 80, 0, 1) * 0.12;
+        driftGain.gain.setTargetAtTime(vol, t, 0.03);
+        driftFilter.frequency.setTargetAtTime(2000 + speed * 20, t, 0.05);
+    } else {
+        driftGain.gain.setTargetAtTime(0, t, 0.08);
+    }
+}
+
+function stopDriftSound() {
+    if (!driftNoise) return;
+    try { driftNoise.stop(); } catch(e) {}
+    driftNoise = null; driftGain = null; driftFilter = null;
+}
+
+// --- One-shot sound effects ---
+function playCollisionSound(intensity) {
+    if (!audioCtx) return;
+    const t = audioCtx.currentTime;
+    // Low-frequency thud + noise burst
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(150, t);
+    osc.frequency.exponentialRampToValueAtTime(40, t + 0.15);
+    gain.gain.setValueAtTime(clamp(intensity, 0.05, 0.25), t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start(t);
+    osc.stop(t + 0.2);
+
+    // Noise burst
+    const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.1, audioCtx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (audioCtx.sampleRate * 0.03));
+    const noise = audioCtx.createBufferSource();
+    noise.buffer = buf;
+    const ng = audioCtx.createGain();
+    ng.gain.setValueAtTime(clamp(intensity, 0.03, 0.15), t);
+    ng.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+    noise.connect(ng);
+    ng.connect(audioCtx.destination);
+    noise.start(t);
+}
+
+function playPickupSound() {
+    if (!audioCtx) return;
+    const t = audioCtx.currentTime;
+    // Ascending chime (two quick notes)
+    [0, 0.08].forEach((offset, i) => {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = i === 0 ? 880 : 1320;
+        gain.gain.setValueAtTime(0.12, t + offset);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + offset + 0.15);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(t + offset);
+        osc.stop(t + offset + 0.15);
+    });
+}
+
+function playBoostSound() {
+    if (!audioCtx) return;
+    const t = audioCtx.currentTime;
+    // Rising whoosh with noise
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(100, t);
+    osc.frequency.exponentialRampToValueAtTime(600, t + 0.3);
+    gain.gain.setValueAtTime(0.10, t);
+    gain.gain.setValueAtTime(0.10, t + 0.2);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(300, t);
+    filter.frequency.exponentialRampToValueAtTime(2000, t + 0.3);
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start(t);
+    osc.stop(t + 0.5);
+}
+
+function playExplosionSound() {
+    if (!audioCtx) return;
+    const t = audioCtx.currentTime;
+    // Heavy noise burst + low oscillator
+    const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.4, audioCtx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (audioCtx.sampleRate * 0.12));
+    const noise = audioCtx.createBufferSource();
+    noise.buffer = buf;
+    const ng = audioCtx.createGain();
+    ng.gain.setValueAtTime(0.2, t);
+    ng.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+    noise.connect(ng);
+    ng.connect(audioCtx.destination);
+    noise.start(t);
+
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.frequency.setValueAtTime(80, t);
+    osc.frequency.exponentialRampToValueAtTime(20, t + 0.3);
+    gain.gain.setValueAtTime(0.15, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start(t);
+    osc.stop(t + 0.35);
+}
+
+function playShieldSound() {
+    if (!audioCtx) return;
+    const t = audioCtx.currentTime;
+    // Shimmering high-frequency sweep
+    const osc = audioCtx.createOscillator();
+    const osc2 = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc2.type = 'sine';
+    osc.frequency.setValueAtTime(1200, t);
+    osc.frequency.setValueAtTime(1600, t + 0.1);
+    osc.frequency.setValueAtTime(1200, t + 0.2);
+    osc2.frequency.setValueAtTime(1205, t);
+    osc2.frequency.setValueAtTime(1605, t + 0.1);
+    osc2.frequency.setValueAtTime(1205, t + 0.2);
+    gain.gain.setValueAtTime(0.08, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+    osc.connect(gain);
+    osc2.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start(t); osc.stop(t + 0.35);
+    osc2.start(t); osc2.stop(t + 0.35);
+}
+
+function playLightningSound() {
+    if (!audioCtx) return;
+    const t = audioCtx.currentTime;
+    // Electric zap: high noise burst + descending tone
+    const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.2, audioCtx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) {
+        const env = Math.exp(-i / (audioCtx.sampleRate * 0.05));
+        d[i] = (Math.random() * 2 - 1) * env + Math.sin(i * 0.15) * env * 0.5;
+    }
+    const noise = audioCtx.createBufferSource();
+    noise.buffer = buf;
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'highpass';
+    filter.frequency.value = 2000;
+    const ng = audioCtx.createGain();
+    ng.gain.setValueAtTime(0.18, t);
+    ng.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+    noise.connect(filter);
+    filter.connect(ng);
+    ng.connect(audioCtx.destination);
+    noise.start(t);
+}
+
+function playOilDropSound() {
+    if (!audioCtx) return;
+    const t = audioCtx.currentTime;
+    // Splat: quick descending tone
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(400, t);
+    osc.frequency.exponentialRampToValueAtTime(80, t + 0.15);
+    gain.gain.setValueAtTime(0.12, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start(t);
+    osc.stop(t + 0.18);
+}
+
+function playSpinOutSound() {
+    if (!audioCtx) return;
+    const t = audioCtx.currentTime;
+    // Screech: filtered noise sweep
+    const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.5, audioCtx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (audioCtx.sampleRate * 0.2));
+    const noise = audioCtx.createBufferSource();
+    noise.buffer = buf;
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(4000, t);
+    filter.frequency.exponentialRampToValueAtTime(800, t + 0.4);
+    filter.Q.value = 8;
+    const ng = audioCtx.createGain();
+    ng.gain.setValueAtTime(0.10, t);
+    ng.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
+    noise.connect(filter);
+    filter.connect(ng);
+    ng.connect(audioCtx.destination);
+    noise.start(t);
+}
+
+let lastCountdownNum = -1;
+function playCountdownBeep(num) {
+    if (!audioCtx || num === lastCountdownNum) return;
+    lastCountdownNum = num;
+    const t = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    if (num === 0) {
+        // GO! - higher pitch, longer
+        osc.frequency.value = 880;
+        gain.gain.setValueAtTime(0.18, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+        osc.start(t); osc.stop(t + 0.4);
+    } else {
+        // 3, 2, 1 - short beeps
+        osc.frequency.value = 440;
+        gain.gain.setValueAtTime(0.15, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+        osc.start(t); osc.stop(t + 0.15);
+    }
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+}
+
+function playDriftBoostSound(level) {
+    if (!audioCtx) return;
+    const t = audioCtx.currentTime;
+    // Burst of energy - pitch and length based on drift level
+    const freq = level === 3 ? 500 : level === 2 ? 400 : 300;
+    const dur = level === 3 ? 0.4 : level === 2 ? 0.3 : 0.2;
+    const osc = audioCtx.createOscillator();
+    const osc2 = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sawtooth';
+    osc2.type = 'square';
+    osc.frequency.setValueAtTime(freq, t);
+    osc.frequency.exponentialRampToValueAtTime(freq * 2, t + dur * 0.5);
+    osc2.frequency.setValueAtTime(freq * 1.5, t);
+    gain.gain.setValueAtTime(0.08, t);
+    gain.gain.setValueAtTime(0.08, t + dur * 0.3);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 1500;
+    osc.connect(filter);
+    osc2.connect(filter);
+    filter.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start(t); osc.stop(t + dur);
+    osc2.start(t); osc2.stop(t + dur);
+}
+
+function playFinishSound(isWin) {
+    if (!audioCtx) return;
+    const t = audioCtx.currentTime;
+    // Victory fanfare or finish jingle
+    const notes = isWin ? [523, 659, 784, 1047] : [440, 523, 659];
+    notes.forEach((freq, i) => {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        const start = t + i * 0.15;
+        gain.gain.setValueAtTime(0.12, start);
+        gain.gain.exponentialRampToValueAtTime(0.001, start + 0.3);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(start);
+        osc.stop(start + 0.3);
+    });
+}
+
 // ---- GAME STATE ----
 let trackPoints;
 let trackMesh, groundMesh, carMeshes, itemBoxMesh, barrierMesh, treeMesh;
@@ -1106,8 +1476,10 @@ function initMenu() {
         lapSel.appendChild(div);
     });
 
-    document.getElementById('startBtn').onclick = startRace;
+    document.getElementById('startBtn').onclick = () => { initAudio(); startRace(); };
     document.getElementById('restartBtn').onclick = () => {
+        stopEngineSound();
+        stopDriftSound();
         document.getElementById('results-overlay').style.display = 'none';
         document.getElementById('menu').style.display = 'flex';
     };
@@ -1157,6 +1529,11 @@ function startRace() {
 
     gameState = 'countdown';
     countdownTimer = 3.5;
+    lastCountdownNum = -1;
+
+    // Start continuous sounds
+    startEngineSound();
+    startDriftSound();
 
     // Initialize camera behind player
     const p = racers[0];
@@ -1281,12 +1658,14 @@ function updateRacer(racer, dt, difficulty) {
         if (racer.drifting) {
             // Release drift boost
             let boostAmount = 0;
-            if (racer.driftCharge >= 2.5) boostAmount = DRIFT_BOOST_MEGA;
-            else if (racer.driftCharge >= 1.5) boostAmount = DRIFT_BOOST_BIG;
-            else if (racer.driftCharge >= 0.5) boostAmount = DRIFT_BOOST_SMALL;
+            let driftLevel = 0;
+            if (racer.driftCharge >= 2.5) { boostAmount = DRIFT_BOOST_MEGA; driftLevel = 3; }
+            else if (racer.driftCharge >= 1.5) { boostAmount = DRIFT_BOOST_BIG; driftLevel = 2; }
+            else if (racer.driftCharge >= 0.5) { boostAmount = DRIFT_BOOST_SMALL; driftLevel = 1; }
 
             if (boostAmount > 0) {
                 racer.boostTimer = boostAmount * 0.5;
+                if (racer.isPlayer) playDriftBoostSound(driftLevel);
                 // Boost particles
                 for (let p = 0; p < 15; p++) {
                     spawnParticle(racer.x, 0.5, racer.z,
@@ -1360,6 +1739,8 @@ function updateRacer(racer, dt, difficulty) {
             finishOrder.push(racer);
             if (racer.isPlayer) {
                 showRaceMessage('Finished!');
+                stopEngineSound();
+                stopDriftSound();
             }
             if (finishOrder.length >= TOTAL_RACERS) {
                 setTimeout(showResults, 2000);
@@ -1481,6 +1862,7 @@ function activateItem(racer) {
     switch (item.name) {
         case 'Boost':
             racer.boostTimer = item.duration;
+            if (racer.isPlayer) playBoostSound();
             for (let p = 0; p < 20; p++) {
                 spawnParticle(racer.x, 0.5, racer.z,
                     (Math.random()-0.5)*10, Math.random()*5, (Math.random()-0.5)*10,
@@ -1507,6 +1889,8 @@ function activateItem(racer) {
             if (target) {
                 target.spinTimer = 1.5;
                 target.speed *= 0.3;
+                playExplosionSound();
+                if (target.isPlayer) playSpinOutSound();
                 for (let p = 0; p < 30; p++) {
                     spawnParticle(target.x, 1, target.z,
                         (Math.random()-0.5)*15, Math.random()*8, (Math.random()-0.5)*15,
@@ -1517,6 +1901,7 @@ function activateItem(racer) {
         }
         case 'Shield':
             racer.shieldTimer = item.duration;
+            if (racer.isPlayer) playShieldSound();
             break;
         case 'Oil Slick': {
             // Drop oil behind
@@ -1527,6 +1912,7 @@ function activateItem(racer) {
                 x: ox, z: oz, type: 'oil', timer: 8,
                 radius: 3,
             });
+            if (racer.isPlayer) playOilDropSound();
             break;
         }
         case 'Lightning': {
@@ -1539,6 +1925,7 @@ function activateItem(racer) {
                 if (otherPos < myPos) {
                     other.slowTimer = 2.0;
                     other.speed *= 0.5;
+                    if (other.isPlayer) playSpinOutSound();
                     for (let p = 0; p < 10; p++) {
                         spawnParticle(other.x, 2, other.z,
                             (Math.random()-0.5)*5, Math.random()*8, (Math.random()-0.5)*5,
@@ -1576,6 +1963,12 @@ function handleCollisions() {
                 a.speed -= relSpeed * (massB / totalMass);
                 b.speed += relSpeed * (massA / totalMass);
 
+                // Collision sound (for player only)
+                if (a.isPlayer || b.isPlayer) {
+                    const impactSpeed = Math.abs(a.speed - b.speed);
+                    playCollisionSound(impactSpeed / 80);
+                }
+
                 // Collision sparks
                 const mx = (a.x + b.x) / 2;
                 const mz = (a.z + b.z) / 2;
@@ -1598,6 +1991,7 @@ function handleCollisions() {
                 box.active = false;
                 box.respawnTimer = 5;
                 pickupItem(racer);
+                if (racer.isPlayer) playPickupSound();
                 for (let p = 0; p < 10; p++) {
                     spawnParticle(box.x, 2, box.z,
                         (Math.random()-0.5)*6, Math.random()*6, (Math.random()-0.5)*6,
@@ -1611,7 +2005,7 @@ function handleCollisions() {
     for (let i = barriers.length - 1; i >= 0; i--) {
         const b = barriers[i];
         if (b.type !== 'oil') continue;
-        b.timer -= 1/60;
+        b.timer -= dt;
         if (b.timer <= 0) { barriers.splice(i, 1); continue; }
         for (const racer of racers) {
             if (racer.spinTimer > 0 || racer.shieldTimer > 0) continue;
@@ -1620,6 +2014,7 @@ function handleCollisions() {
             if (dx*dx + dz*dz < b.radius * b.radius) {
                 racer.spinTimer = 1.0;
                 racer.speed *= 0.4;
+                if (racer.isPlayer) playSpinOutSound();
             }
         }
     }
@@ -1662,6 +2057,7 @@ function showResults() {
     const playerPos = finishOrder.indexOf(playerRacer) + 1;
     document.getElementById('resultsTitle').textContent =
         playerPos === 1 ? 'Victory!' : playerPos <= 3 ? 'Podium Finish!' : 'Race Complete!';
+    playFinishSound(playerPos === 1);
 
     let html = '';
     finishOrder.forEach((r, i) => {
@@ -1837,11 +2233,14 @@ function gameLoop(time) {
         countdownTimer -= dt;
         const el = document.getElementById('countdown');
         if (countdownTimer > 0.5) {
-            el.textContent = Math.ceil(countdownTimer - 0.5);
+            const num = Math.ceil(countdownTimer - 0.5);
+            el.textContent = num;
             el.style.opacity = '1';
+            playCountdownBeep(num);
         } else if (countdownTimer > 0) {
             el.textContent = 'GO!';
             el.style.opacity = '1';
+            playCountdownBeep(0);
         } else {
             el.style.opacity = '0';
             gameState = 'racing';
@@ -1854,6 +2253,13 @@ function gameLoop(time) {
             updateRacer(racer, dt, selectedDifficulty);
         }
         handleCollisions();
+
+        // Update continuous sounds based on player state
+        if (racers.length > 0) {
+            const player = racers[0];
+            updateEngineSound(player.speed, BASE_TOP_SPEED * (player.carDef.topSpeed / 200));
+            updateDriftSound(player.drifting, player.speed);
+        }
 
         // Update item boxes
         for (const box of itemBoxes) {
