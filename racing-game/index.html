@@ -1,0 +1,1996 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Drift Kings - WebGL Racing</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #0a0a0a;
+            color: #fff;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+        }
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        /* HUD */
+        #hud {
+            display: none;
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            pointer-events: none;
+        }
+        #hud .speed-panel {
+            position: absolute;
+            bottom: 30px;
+            right: 30px;
+            background: rgba(0,0,0,0.6);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 12px;
+            padding: 16px 24px;
+            backdrop-filter: blur(10px);
+        }
+        #hud .speed-value {
+            font-size: 48px;
+            font-weight: 700;
+            letter-spacing: -2px;
+        }
+        #hud .speed-unit {
+            font-size: 14px;
+            opacity: 0.5;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+        #hud .position-panel {
+            position: absolute;
+            top: 30px;
+            left: 30px;
+            background: rgba(0,0,0,0.6);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 12px;
+            padding: 16px 24px;
+            backdrop-filter: blur(10px);
+        }
+        #hud .position-value {
+            font-size: 42px;
+            font-weight: 700;
+        }
+        #hud .position-suffix {
+            font-size: 18px;
+            opacity: 0.6;
+        }
+        #hud .lap-panel {
+            position: absolute;
+            top: 30px;
+            right: 30px;
+            background: rgba(0,0,0,0.6);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 12px;
+            padding: 16px 24px;
+            backdrop-filter: blur(10px);
+        }
+        #hud .lap-value {
+            font-size: 32px;
+            font-weight: 600;
+        }
+        #hud .item-panel {
+            position: absolute;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.6);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 12px;
+            padding: 12px 28px;
+            backdrop-filter: blur(10px);
+            font-size: 28px;
+            min-width: 80px;
+            text-align: center;
+        }
+        #hud .drift-bar-container {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 300px;
+            height: 8px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        #hud .drift-bar {
+            height: 100%;
+            width: 0%;
+            border-radius: 4px;
+            transition: width 0.1s, background 0.2s;
+        }
+        #hud .drift-label {
+            position: absolute;
+            bottom: 44px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            opacity: 0.5;
+        }
+        #hud .countdown {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 120px;
+            font-weight: 800;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        #hud .race-message {
+            position: absolute;
+            top: 40%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 48px;
+            font-weight: 700;
+            opacity: 0;
+            transition: opacity 0.3s;
+            text-align: center;
+        }
+        #hud .minimap {
+            position: absolute;
+            bottom: 30px;
+            left: 30px;
+            width: 160px;
+            height: 160px;
+            background: rgba(0,0,0,0.6);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 12px;
+            backdrop-filter: blur(10px);
+        }
+        #hud .wrong-way {
+            position: absolute;
+            top: 25%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 36px;
+            font-weight: 700;
+            color: #ff4444;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        /* Menu */
+        #menu {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0,0,0,0.85);
+            backdrop-filter: blur(20px);
+            z-index: 10;
+        }
+        #menu h1 {
+            font-size: 72px;
+            font-weight: 800;
+            letter-spacing: -3px;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, #ff6b6b, #ffa07a, #ffdd57);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        #menu .subtitle {
+            font-size: 16px;
+            opacity: 0.4;
+            letter-spacing: 6px;
+            text-transform: uppercase;
+            margin-bottom: 50px;
+        }
+        #menu .menu-section {
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        #menu .menu-section h3 {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            opacity: 0.4;
+            margin-bottom: 12px;
+        }
+        #menu .car-select {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+        }
+        #menu .car-option {
+            background: rgba(255,255,255,0.05);
+            border: 2px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 16px 20px;
+            cursor: pointer;
+            transition: all 0.2s;
+            min-width: 120px;
+            pointer-events: auto;
+        }
+        #menu .car-option:hover {
+            background: rgba(255,255,255,0.1);
+            border-color: rgba(255,255,255,0.3);
+        }
+        #menu .car-option.selected {
+            border-color: #ffdd57;
+            background: rgba(255,221,87,0.1);
+        }
+        #menu .car-option .car-name {
+            font-weight: 600;
+            font-size: 16px;
+            margin-bottom: 8px;
+        }
+        #menu .car-option .car-stat {
+            font-size: 11px;
+            opacity: 0.5;
+            margin-bottom: 2px;
+        }
+        #menu .car-option .car-emoji {
+            font-size: 28px;
+            margin-bottom: 6px;
+        }
+        #menu .difficulty-select {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+        }
+        #menu .diff-option {
+            background: rgba(255,255,255,0.05);
+            border: 2px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            padding: 10px 20px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 14px;
+            pointer-events: auto;
+        }
+        #menu .diff-option:hover {
+            background: rgba(255,255,255,0.1);
+        }
+        #menu .diff-option.selected {
+            border-color: #ffdd57;
+            background: rgba(255,221,87,0.1);
+        }
+        #menu .start-btn {
+            background: linear-gradient(135deg, #ff6b6b, #ffdd57);
+            color: #000;
+            border: none;
+            border-radius: 12px;
+            padding: 16px 48px;
+            font-size: 18px;
+            font-weight: 700;
+            cursor: pointer;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin-top: 20px;
+            pointer-events: auto;
+        }
+        #menu .start-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 8px 30px rgba(255,107,107,0.3);
+        }
+        #menu .controls-info {
+            margin-top: 30px;
+            font-size: 12px;
+            opacity: 0.3;
+            line-height: 1.8;
+        }
+        #results-overlay {
+            display: none;
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.85);
+            backdrop-filter: blur(20px);
+            z-index: 10;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        #results-overlay h2 {
+            font-size: 56px;
+            font-weight: 800;
+            margin-bottom: 30px;
+            background: linear-gradient(135deg, #ff6b6b, #ffdd57);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        #results-overlay .result-list {
+            font-size: 20px;
+            line-height: 2;
+            margin-bottom: 30px;
+        }
+        #results-overlay .result-player {
+            color: #ffdd57;
+            font-weight: 700;
+        }
+        #results-overlay button {
+            background: linear-gradient(135deg, #ff6b6b, #ffdd57);
+            color: #000;
+            border: none;
+            border-radius: 12px;
+            padding: 14px 40px;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            transition: transform 0.2s;
+        }
+        #results-overlay button:hover { transform: scale(1.05); }
+    </style>
+</head>
+<body>
+<canvas id="gameCanvas"></canvas>
+
+<div id="hud">
+    <div class="position-panel">
+        <span class="position-value" id="posValue">1</span><span class="position-suffix" id="posSuffix">st</span>
+    </div>
+    <div class="lap-panel">
+        <div class="lap-value">Lap <span id="lapValue">1</span> / <span id="lapTotal">3</span></div>
+    </div>
+    <div class="item-panel" id="itemPanel">-</div>
+    <div class="speed-panel">
+        <div class="speed-value" id="speedValue">0</div>
+        <div class="speed-unit">km/h</div>
+    </div>
+    <div class="drift-label">DRIFT</div>
+    <div class="drift-bar-container">
+        <div class="drift-bar" id="driftBar"></div>
+    </div>
+    <div class="countdown" id="countdown"></div>
+    <div class="race-message" id="raceMessage"></div>
+    <div class="wrong-way" id="wrongWay">WRONG WAY!</div>
+    <canvas class="minimap" id="minimapCanvas" width="160" height="160"></canvas>
+</div>
+
+<div id="menu">
+    <h1>Drift Kings</h1>
+    <div class="subtitle">WebGL Racing</div>
+
+    <div class="menu-section">
+        <h3>Choose Your Car</h3>
+        <div class="car-select" id="carSelect"></div>
+    </div>
+
+    <div class="menu-section">
+        <h3>Difficulty</h3>
+        <div class="difficulty-select" id="diffSelect"></div>
+    </div>
+
+    <div class="menu-section">
+        <h3>Laps</h3>
+        <div class="difficulty-select" id="lapSelect"></div>
+    </div>
+
+    <button class="start-btn" id="startBtn">Start Race</button>
+
+    <div class="controls-info">
+        W / Up - Accelerate &nbsp;|&nbsp; S / Down - Brake &nbsp;|&nbsp; A/D or Left/Right - Steer<br>
+        Space - Use Item &nbsp;|&nbsp; Shift - Drift
+    </div>
+</div>
+
+<div id="results-overlay">
+    <h2 id="resultsTitle">Race Complete!</h2>
+    <div class="result-list" id="resultList"></div>
+    <button id="restartBtn">Race Again</button>
+</div>
+
+<script>
+// ============================================================
+// DRIFT KINGS - WebGL Car Racing Game
+// ============================================================
+
+// ---- CONFIGURATION ----
+const CAR_DEFS = [
+    { name: 'Speedster', emoji: '\u{1F3CE}', color: [1, 0.3, 0.3], topSpeed: 220, accel: 1.0, handling: 0.7, driftFactor: 0.8, weight: 0.8, desc: 'Fast top speed, light' },
+    { name: 'Handler', emoji: '\u{1F699}', color: [0.3, 0.6, 1], topSpeed: 190, accel: 0.85, handling: 1.0, driftFactor: 1.0, weight: 0.9, desc: 'Great handling & drift' },
+    { name: 'Tank', emoji: '\u{1F69A}', color: [0.3, 0.9, 0.4], topSpeed: 180, accel: 0.7, handling: 0.6, driftFactor: 0.6, weight: 1.2, desc: 'Heavy, hard to push' },
+    { name: 'Balanced', emoji: '\u{1F697}', color: [1, 0.85, 0.2], topSpeed: 200, accel: 0.9, handling: 0.85, driftFactor: 0.9, weight: 1.0, desc: 'Well-rounded racer' },
+];
+
+const DIFFICULTIES = [
+    { name: 'Easy', aiSpeed: 0.75, aiHandling: 0.75, aiAggression: 0.3 },
+    { name: 'Medium', aiSpeed: 0.88, aiHandling: 0.85, aiAggression: 0.6 },
+    { name: 'Hard', aiSpeed: 0.97, aiHandling: 0.95, aiAggression: 0.85 },
+    { name: 'Insane', aiSpeed: 1.08, aiHandling: 1.0, aiAggression: 1.0 },
+];
+
+const LAP_OPTIONS = [2, 3, 5];
+
+const ITEMS = [
+    { name: 'Boost', emoji: '\u{1F680}', duration: 2.0 },
+    { name: 'Missile', emoji: '\u{1F4A5}', duration: 0 },
+    { name: 'Shield', emoji: '\u{1F6E1}', duration: 4.0 },
+    { name: 'Oil Slick', emoji: '\u{1F4A7}', duration: 0 },
+    { name: 'Lightning', emoji: '\u26A1', duration: 0 },
+];
+
+const NUM_AI = 5;
+const TOTAL_RACERS = NUM_AI + 1;
+const ITEM_BOX_COUNT = 8;
+
+// ---- TRACK DEFINITION ----
+// Track is a closed loop defined by waypoints. We'll build a smooth oval-ish circuit.
+function buildTrack() {
+    const points = [];
+    const segments = 120;
+    // Clean racetrack: elongated oval with two gentle chicanes
+    for (let i = 0; i < segments; i++) {
+        const t = (i / segments) * Math.PI * 2;
+        // Base oval
+        let x = Math.cos(t) * 280;
+        let z = Math.sin(t) * 180;
+        // Add gentle chicane bumps (no self-intersection)
+        x += Math.sin(t * 2) * 40;
+        z += Math.cos(t * 2) * 25;
+        points.push({ x, z });
+    }
+    return points;
+}
+
+function getTrackPoint(points, t) {
+    const len = points.length;
+    const idx = ((t % 1) + 1) % 1 * len;
+    const i0 = Math.floor(idx) % len;
+    const i1 = (i0 + 1) % len;
+    const frac = idx - Math.floor(idx);
+    return {
+        x: points[i0].x + (points[i1].x - points[i0].x) * frac,
+        z: points[i0].z + (points[i1].z - points[i0].z) * frac
+    };
+}
+
+function getTrackTangent(points, t) {
+    const dt = 0.001;
+    const p0 = getTrackPoint(points, t);
+    const p1 = getTrackPoint(points, t + dt);
+    const dx = p1.x - p0.x;
+    const dz = p1.z - p0.z;
+    const len = Math.sqrt(dx * dx + dz * dz);
+    return { x: dx / len, z: dz / len };
+}
+
+function getTrackNormal(points, t) {
+    const tan = getTrackTangent(points, t);
+    return { x: -tan.z, z: tan.x };
+}
+
+function closestTrackT(points, px, pz) {
+    let bestT = 0;
+    let bestDist = Infinity;
+    const steps = points.length * 4;
+    for (let i = 0; i < steps; i++) {
+        const t = i / steps;
+        const p = getTrackPoint(points, t);
+        const dx = p.x - px;
+        const dz = p.z - pz;
+        const d = dx * dx + dz * dz;
+        if (d < bestDist) {
+            bestDist = d;
+            bestT = t;
+        }
+    }
+    // Refine with binary search
+    for (let j = 0; j < 12; j++) {
+        const step = 1.0 / (steps * Math.pow(2, j + 1));
+        for (const off of [-step, 0, step]) {
+            const t = ((bestT + off) % 1 + 1) % 1;
+            const p = getTrackPoint(points, t);
+            const dx = p.x - px;
+            const dz = p.z - pz;
+            const d = dx * dx + dz * dz;
+            if (d < bestDist) {
+                bestDist = d;
+                bestT = t;
+            }
+        }
+    }
+    return { t: ((bestT % 1) + 1) % 1, dist: Math.sqrt(bestDist) };
+}
+
+// ---- GL HELPERS ----
+function createShader(gl, type, src) {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+        console.error(gl.getShaderInfoLog(s));
+        gl.deleteShader(s);
+        return null;
+    }
+    return s;
+}
+
+function createProgram(gl, vsSrc, fsSrc) {
+    const vs = createShader(gl, gl.VERTEX_SHADER, vsSrc);
+    const fs = createShader(gl, gl.FRAGMENT_SHADER, fsSrc);
+    const prog = gl.createProgram();
+    gl.attachShader(prog, vs);
+    gl.attachShader(prog, fs);
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+        console.error(gl.getProgramInfoLog(prog));
+        return null;
+    }
+    return prog;
+}
+
+// ---- MATH HELPERS ----
+function mat4Perspective(fovy, aspect, near, far) {
+    const f = 1.0 / Math.tan(fovy / 2);
+    const nf = 1 / (near - far);
+    return new Float32Array([
+        f / aspect, 0, 0, 0,
+        0, f, 0, 0,
+        0, 0, (far + near) * nf, -1,
+        0, 0, 2 * far * near * nf, 0
+    ]);
+}
+
+function mat4LookAt(eye, center, up) {
+    let zx = eye[0] - center[0], zy = eye[1] - center[1], zz = eye[2] - center[2];
+    let len = Math.sqrt(zx * zx + zy * zy + zz * zz);
+    zx /= len; zy /= len; zz /= len;
+    let xx = up[1] * zz - up[2] * zy;
+    let xy = up[2] * zx - up[0] * zz;
+    let xz = up[0] * zy - up[1] * zx;
+    len = Math.sqrt(xx * xx + xy * xy + xz * xz);
+    xx /= len; xy /= len; xz /= len;
+    let yx = zy * xz - zz * xy;
+    let yy = zz * xx - zx * xz;
+    let yz = zx * xy - zy * xx;
+    return new Float32Array([
+        xx, yx, zx, 0,
+        xy, yy, zy, 0,
+        xz, yz, zz, 0,
+        -(xx * eye[0] + xy * eye[1] + xz * eye[2]),
+        -(yx * eye[0] + yy * eye[1] + yz * eye[2]),
+        -(zx * eye[0] + zy * eye[1] + zz * eye[2]),
+        1
+    ]);
+}
+
+function mat4Multiply(a, b) {
+    const r = new Float32Array(16);
+    for (let i = 0; i < 4; i++)
+        for (let j = 0; j < 4; j++) {
+            r[i * 4 + j] = 0;
+            for (let k = 0; k < 4; k++)
+                r[i * 4 + j] += a[k * 4 + j] * b[i * 4 + k];
+        }
+    return r;
+}
+
+function mat4Identity() {
+    const m = new Float32Array(16);
+    m[0] = m[5] = m[10] = m[15] = 1;
+    return m;
+}
+
+function mat4Translate(tx, ty, tz) {
+    const m = mat4Identity();
+    m[12] = tx; m[13] = ty; m[14] = tz;
+    return m;
+}
+
+function mat4RotateY(angle) {
+    const m = mat4Identity();
+    const c = Math.cos(angle), s = Math.sin(angle);
+    m[0] = c; m[2] = -s; m[8] = s; m[10] = c;
+    return m;
+}
+
+function mat4Scale(sx, sy, sz) {
+    const m = mat4Identity();
+    m[0] = sx; m[5] = sy; m[10] = sz;
+    return m;
+}
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+// ---- MAIN GAME ----
+const canvas = document.getElementById('gameCanvas');
+const gl = canvas.getContext('webgl', { antialias: true, alpha: false });
+
+// Shaders
+const VS_BASIC = `
+attribute vec3 aPos;
+attribute vec3 aNormal;
+attribute vec3 aColor;
+uniform mat4 uMVP;
+uniform mat4 uModel;
+varying vec3 vColor;
+varying vec3 vNormal;
+varying vec3 vWorldPos;
+void main() {
+    gl_Position = uMVP * vec4(aPos, 1.0);
+    vColor = aColor;
+    vNormal = mat3(uModel) * aNormal;
+    vWorldPos = (uModel * vec4(aPos, 1.0)).xyz;
+}`;
+
+const FS_BASIC = `
+precision mediump float;
+varying vec3 vColor;
+varying vec3 vNormal;
+varying vec3 vWorldPos;
+uniform vec3 uLightDir;
+uniform vec3 uFogColor;
+uniform float uFogDensity;
+void main() {
+    vec3 n = normalize(vNormal);
+    float diff = max(dot(n, uLightDir), 0.0);
+    float amb = 0.35;
+    vec3 col = vColor * (amb + diff * 0.65);
+    // fog
+    float dist = length(vWorldPos);
+    float fog = 1.0 - exp(-dist * uFogDensity);
+    col = mix(col, uFogColor, clamp(fog, 0.0, 0.7));
+    gl_FragColor = vec4(col, 1.0);
+}`;
+
+const VS_PARTICLE = `
+attribute vec3 aPos;
+attribute vec4 aColor;
+attribute float aSize;
+uniform mat4 uVP;
+varying vec4 vColor;
+void main() {
+    gl_Position = uVP * vec4(aPos, 1.0);
+    gl_PointSize = aSize / gl_Position.w * 200.0;
+    vColor = aColor;
+}`;
+
+const FS_PARTICLE = `
+precision mediump float;
+varying vec4 vColor;
+void main() {
+    vec2 c = gl_PointCoord - 0.5;
+    float r = dot(c, c);
+    if (r > 0.25) discard;
+    float alpha = vColor.a * (1.0 - r * 4.0);
+    gl_FragColor = vec4(vColor.rgb, alpha);
+}`;
+
+let prog, pLocs;
+let particleProg, ppLocs;
+
+function initShaders() {
+    prog = createProgram(gl, VS_BASIC, FS_BASIC);
+    pLocs = {
+        aPos: gl.getAttribLocation(prog, 'aPos'),
+        aNormal: gl.getAttribLocation(prog, 'aNormal'),
+        aColor: gl.getAttribLocation(prog, 'aColor'),
+        uMVP: gl.getUniformLocation(prog, 'uMVP'),
+        uModel: gl.getUniformLocation(prog, 'uModel'),
+        uLightDir: gl.getUniformLocation(prog, 'uLightDir'),
+        uFogColor: gl.getUniformLocation(prog, 'uFogColor'),
+        uFogDensity: gl.getUniformLocation(prog, 'uFogDensity'),
+    };
+
+    particleProg = createProgram(gl, VS_PARTICLE, FS_PARTICLE);
+    ppLocs = {
+        aPos: gl.getAttribLocation(particleProg, 'aPos'),
+        aColor: gl.getAttribLocation(particleProg, 'aColor'),
+        aSize: gl.getAttribLocation(particleProg, 'aSize'),
+        uVP: gl.getUniformLocation(particleProg, 'uVP'),
+    };
+}
+
+// ---- GEOMETRY BUILDERS ----
+function buildMesh(verts, indices) {
+    const vbo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(verts), gl.STATIC_DRAW);
+    const ibo = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
+    return { vbo, ibo, count: indices.length };
+}
+
+function buildBox(w, h, d, color) {
+    const hw = w / 2, hh = h / 2, hd = d / 2;
+    const r = color[0], g = color[1], b = color[2];
+    // pos(3) + normal(3) + color(3) = 9 per vertex
+    const faces = [
+        // front
+        { verts: [[-hw,-hh,hd],[hw,-hh,hd],[hw,hh,hd],[-hw,hh,hd]], n: [0,0,1] },
+        // back
+        { verts: [[hw,-hh,-hd],[-hw,-hh,-hd],[-hw,hh,-hd],[hw,hh,-hd]], n: [0,0,-1] },
+        // top
+        { verts: [[-hw,hh,hd],[hw,hh,hd],[hw,hh,-hd],[-hw,hh,-hd]], n: [0,1,0] },
+        // bottom
+        { verts: [[-hw,-hh,-hd],[hw,-hh,-hd],[hw,-hh,hd],[-hw,-hh,hd]], n: [0,-1,0] },
+        // right
+        { verts: [[hw,-hh,hd],[hw,-hh,-hd],[hw,hh,-hd],[hw,hh,hd]], n: [1,0,0] },
+        // left
+        { verts: [[-hw,-hh,-hd],[-hw,-hh,hd],[-hw,hh,hd],[-hw,hh,-hd]], n: [-1,0,0] },
+    ];
+    const verts = [];
+    const indices = [];
+    let vi = 0;
+    for (const f of faces) {
+        for (const v of f.verts) {
+            verts.push(v[0], v[1], v[2], f.n[0], f.n[1], f.n[2], r, g, b);
+        }
+        indices.push(vi, vi+1, vi+2, vi, vi+2, vi+3);
+        vi += 4;
+    }
+    return buildMesh(verts, indices);
+}
+
+function buildCarMesh(color) {
+    // Build a simple car: body + cabin + wheels represented as boxes
+    const parts = [];
+    // Body
+    const r = color[0], g = color[1], b = color[2];
+    const bodyVerts = [];
+    const bodyIndices = [];
+
+    function addBox(ox, oy, oz, w, h, d, cr, cg, cb, verts, idxs) {
+        const hw = w/2, hh = h/2, hd = d/2;
+        const faces = [
+            { vs: [[-hw,-hh,hd],[hw,-hh,hd],[hw,hh,hd],[-hw,hh,hd]], n: [0,0,1] },
+            { vs: [[hw,-hh,-hd],[-hw,-hh,-hd],[-hw,hh,-hd],[hw,hh,-hd]], n: [0,0,-1] },
+            { vs: [[-hw,hh,hd],[hw,hh,hd],[hw,hh,-hd],[-hw,hh,-hd]], n: [0,1,0] },
+            { vs: [[-hw,-hh,-hd],[hw,-hh,-hd],[hw,-hh,hd],[-hw,-hh,hd]], n: [0,-1,0] },
+            { vs: [[hw,-hh,hd],[hw,-hh,-hd],[hw,hh,-hd],[hw,hh,hd]], n: [1,0,0] },
+            { vs: [[-hw,-hh,-hd],[-hw,-hh,hd],[-hw,hh,hd],[-hw,hh,-hd]], n: [-1,0,0] },
+        ];
+        let vi = verts.length / 9;
+        for (const f of faces) {
+            for (const v of f.vs)
+                verts.push(v[0]+ox, v[1]+oy, v[2]+oz, f.n[0], f.n[1], f.n[2], cr, cg, cb);
+            idxs.push(vi, vi+1, vi+2, vi, vi+2, vi+3);
+            vi += 4;
+        }
+    }
+
+    // Main body
+    addBox(0, 0.4, 0, 2.2, 0.6, 4.5, r, g, b, bodyVerts, bodyIndices);
+    // Cabin
+    addBox(0, 0.95, -0.3, 1.8, 0.55, 2.2, r*0.7, g*0.7, b*0.7, bodyVerts, bodyIndices);
+    // Windshield hint (lighter)
+    addBox(0, 0.95, 0.85, 1.6, 0.45, 0.15, 0.6, 0.7, 0.9, bodyVerts, bodyIndices);
+    // Wheels
+    const wc = [0.15, 0.15, 0.15];
+    addBox(-1.1, 0.0, 1.3, 0.3, 0.5, 0.7, wc[0], wc[1], wc[2], bodyVerts, bodyIndices);
+    addBox(1.1, 0.0, 1.3, 0.3, 0.5, 0.7, wc[0], wc[1], wc[2], bodyVerts, bodyIndices);
+    addBox(-1.1, 0.0, -1.3, 0.3, 0.5, 0.7, wc[0], wc[1], wc[2], bodyVerts, bodyIndices);
+    addBox(1.1, 0.0, -1.3, 0.3, 0.5, 0.7, wc[0], wc[1], wc[2], bodyVerts, bodyIndices);
+    // Headlights
+    addBox(-0.7, 0.45, 2.28, 0.35, 0.2, 0.1, 1, 1, 0.7, bodyVerts, bodyIndices);
+    addBox(0.7, 0.45, 2.28, 0.35, 0.2, 0.1, 1, 1, 0.7, bodyVerts, bodyIndices);
+    // Tail lights
+    addBox(-0.8, 0.45, -2.28, 0.3, 0.2, 0.1, 1, 0.1, 0.1, bodyVerts, bodyIndices);
+    addBox(0.8, 0.45, -2.28, 0.3, 0.2, 0.1, 1, 0.1, 0.1, bodyVerts, bodyIndices);
+
+    return buildMesh(bodyVerts, bodyIndices);
+}
+
+function buildTrackMesh(trackPoints) {
+    const verts = [];
+    const indices = [];
+    const ROAD_WIDTH = 18;
+    const segments = trackPoints.length;
+    let vi = 0;
+
+    for (let i = 0; i <= segments; i++) {
+        const t = i / segments;
+        const p = getTrackPoint(trackPoints, t);
+        const n = getTrackNormal(trackPoints, t);
+
+        // Road surface vertices (left and right edge)
+        const lx = p.x + n.x * ROAD_WIDTH;
+        const lz = p.z + n.z * ROAD_WIDTH;
+        const rx = p.x - n.x * ROAD_WIDTH;
+        const rz = p.z - n.z * ROAD_WIDTH;
+
+        // Determine stripe coloring
+        const stripeT = (t * segments) % 4;
+        const isStripe = stripeT < 0.3;
+        const roadR = isStripe ? 0.6 : 0.25;
+        const roadG = isStripe ? 0.6 : 0.25;
+        const roadB = isStripe ? 0.6 : 0.28;
+
+        // Left vertex
+        verts.push(lx, 0.01, lz, 0, 1, 0, roadR, roadG, roadB);
+        // Center
+        verts.push(p.x, 0.01, p.z, 0, 1, 0, roadR * 0.9, roadG * 0.9, roadB * 0.9);
+        // Right vertex
+        verts.push(rx, 0.01, rz, 0, 1, 0, roadR, roadG, roadB);
+
+        if (i < segments) {
+            const base = vi;
+            // Two triangles for left half
+            indices.push(base, base + 3, base + 4);
+            indices.push(base, base + 4, base + 1);
+            // Two triangles for right half
+            indices.push(base + 1, base + 4, base + 5);
+            indices.push(base + 1, base + 5, base + 2);
+        }
+        vi += 3;
+    }
+
+    // Curbs (red/white stripes on edges)
+    const CURB_WIDTH = 2;
+    let curbVi = vi;
+    for (let i = 0; i <= segments; i++) {
+        const t = i / segments;
+        const p = getTrackPoint(trackPoints, t);
+        const n = getTrackNormal(trackPoints, t);
+
+        const stripeT = (t * segments * 2) % 2;
+        const isRed = stripeT < 1;
+        const cr = isRed ? 0.9 : 0.9;
+        const cg = isRed ? 0.15 : 0.9;
+        const cb = isRed ? 0.15 : 0.9;
+
+        // Left curb
+        const lo = ROAD_WIDTH;
+        const li = ROAD_WIDTH + CURB_WIDTH;
+        verts.push(p.x + n.x * lo, 0.02, p.z + n.z * lo, 0, 1, 0, cr, cg, cb);
+        verts.push(p.x + n.x * li, 0.02, p.z + n.z * li, 0, 1, 0, cr, cg, cb);
+
+        // Right curb
+        verts.push(p.x - n.x * lo, 0.02, p.z - n.z * lo, 0, 1, 0, cr, cg, cb);
+        verts.push(p.x - n.x * li, 0.02, p.z - n.z * li, 0, 1, 0, cr, cg, cb);
+
+        if (i < segments) {
+            const base = curbVi;
+            // Left curb
+            indices.push(base, base + 4, base + 5);
+            indices.push(base, base + 5, base + 1);
+            // Right curb
+            indices.push(base + 2, base + 6, base + 7);
+            indices.push(base + 2, base + 7, base + 3);
+        }
+        curbVi += 4;
+    }
+
+    return buildMesh(verts, indices);
+}
+
+function buildGroundMesh() {
+    const S = 1500;
+    const gc = [0.18, 0.35, 0.12]; // grass green
+    const verts = [
+        -S, 0, -S, 0, 1, 0, gc[0], gc[1], gc[2],
+         S, 0, -S, 0, 1, 0, gc[0]*0.9, gc[1]*0.9, gc[2]*0.9,
+         S, 0,  S, 0, 1, 0, gc[0], gc[1], gc[2],
+        -S, 0,  S, 0, 1, 0, gc[0]*0.9, gc[1]*0.9, gc[2]*0.9,
+    ];
+    const indices = [0, 1, 2, 0, 2, 3];
+    return buildMesh(verts, indices);
+}
+
+function buildItemBoxMesh() {
+    return buildBox(2.5, 2.5, 2.5, [1.0, 0.85, 0.0]);
+}
+
+function buildBarrierMesh() {
+    return buildBox(1.5, 2.0, 1.5, [0.8, 0.8, 0.8]);
+}
+
+function buildTreeMesh() {
+    const verts = [];
+    const indices = [];
+    function addBox(ox, oy, oz, w, h, d, cr, cg, cb) {
+        const hw = w/2, hh = h/2, hd = d/2;
+        const faces = [
+            { vs: [[-hw,-hh,hd],[hw,-hh,hd],[hw,hh,hd],[-hw,hh,hd]], n: [0,0,1] },
+            { vs: [[hw,-hh,-hd],[-hw,-hh,-hd],[-hw,hh,-hd],[hw,hh,-hd]], n: [0,0,-1] },
+            { vs: [[-hw,hh,hd],[hw,hh,hd],[hw,hh,-hd],[-hw,hh,-hd]], n: [0,1,0] },
+            { vs: [[-hw,-hh,-hd],[hw,-hh,-hd],[hw,-hh,hd],[-hw,-hh,hd]], n: [0,-1,0] },
+            { vs: [[hw,-hh,hd],[hw,-hh,-hd],[hw,hh,-hd],[hw,hh,hd]], n: [1,0,0] },
+            { vs: [[-hw,-hh,-hd],[-hw,-hh,hd],[-hw,hh,hd],[-hw,hh,-hd]], n: [-1,0,0] },
+        ];
+        let vi = verts.length / 9;
+        for (const f of faces) {
+            for (const v of f.vs)
+                verts.push(v[0]+ox, v[1]+oy, v[2]+oz, f.n[0], f.n[1], f.n[2], cr, cg, cb);
+            indices.push(vi, vi+1, vi+2, vi, vi+2, vi+3);
+            vi += 4;
+        }
+    }
+    // Trunk
+    addBox(0, 3, 0, 1.2, 6, 1.2, 0.45, 0.3, 0.15);
+    // Foliage layers
+    addBox(0, 7, 0, 5, 3, 5, 0.15, 0.5, 0.15);
+    addBox(0, 9.5, 0, 3.5, 2.5, 3.5, 0.2, 0.55, 0.2);
+    addBox(0, 11.5, 0, 2, 2, 2, 0.25, 0.6, 0.2);
+    return buildMesh(verts, indices);
+}
+
+// ---- DRAW HELPERS ----
+function drawMesh(mesh, modelMat, vpMat) {
+    const mvp = mat4Multiply(vpMat, modelMat);
+    gl.uniformMatrix4fv(pLocs.uMVP, false, mvp);
+    gl.uniformMatrix4fv(pLocs.uModel, false, modelMat);
+    gl.bindBuffer(gl.ARRAY_BUFFER, mesh.vbo);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, mesh.ibo);
+    const stride = 9 * 4;
+    gl.enableVertexAttribArray(pLocs.aPos);
+    gl.vertexAttribPointer(pLocs.aPos, 3, gl.FLOAT, false, stride, 0);
+    gl.enableVertexAttribArray(pLocs.aNormal);
+    gl.vertexAttribPointer(pLocs.aNormal, 3, gl.FLOAT, false, stride, 12);
+    gl.enableVertexAttribArray(pLocs.aColor);
+    gl.vertexAttribPointer(pLocs.aColor, 3, gl.FLOAT, false, stride, 24);
+    gl.drawElements(gl.TRIANGLES, mesh.count, gl.UNSIGNED_SHORT, 0);
+}
+
+// ---- PARTICLES ----
+const MAX_PARTICLES = 500;
+let particles = [];
+
+function spawnParticle(x, y, z, vx, vy, vz, r, g, b, life, size) {
+    if (particles.length >= MAX_PARTICLES) return;
+    particles.push({ x, y, z, vx, vy, vz, r, g, b, a: 1, life, maxLife: life, size });
+}
+
+function updateParticles(dt) {
+    for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.z += p.vz * dt;
+        p.vy -= 15 * dt; // gravity
+        p.life -= dt;
+        p.a = clamp(p.life / p.maxLife, 0, 1);
+        if (p.life <= 0) particles.splice(i, 1);
+    }
+}
+
+let particleVBO;
+function initParticles() {
+    particleVBO = gl.createBuffer();
+}
+
+function drawParticles(vpMat) {
+    if (particles.length === 0) return;
+    gl.useProgram(particleProg);
+    gl.uniformMatrix4fv(ppLocs.uVP, false, vpMat);
+
+    const data = new Float32Array(particles.length * 8);
+    for (let i = 0; i < particles.length; i++) {
+        const p = particles[i];
+        data[i*8] = p.x; data[i*8+1] = p.y; data[i*8+2] = p.z;
+        data[i*8+3] = p.r; data[i*8+4] = p.g; data[i*8+5] = p.b; data[i*8+6] = p.a;
+        data[i*8+7] = p.size;
+    }
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, particleVBO);
+    gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
+
+    gl.enableVertexAttribArray(ppLocs.aPos);
+    gl.vertexAttribPointer(ppLocs.aPos, 3, gl.FLOAT, false, 32, 0);
+    gl.enableVertexAttribArray(ppLocs.aColor);
+    gl.vertexAttribPointer(ppLocs.aColor, 4, gl.FLOAT, false, 32, 12);
+    gl.enableVertexAttribArray(ppLocs.aSize);
+    gl.vertexAttribPointer(ppLocs.aSize, 1, gl.FLOAT, false, 32, 28);
+
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+    gl.depthMask(false);
+    gl.drawArrays(gl.POINTS, 0, particles.length);
+    gl.depthMask(true);
+    gl.disable(gl.BLEND);
+
+    gl.useProgram(prog);
+}
+
+// ---- GAME STATE ----
+let trackPoints;
+let trackMesh, groundMesh, carMeshes, itemBoxMesh, barrierMesh, treeMesh;
+let itemBoxes = [];
+let trees = [];
+let barriers = [];
+
+let gameState = 'menu'; // menu, countdown, racing, finished
+let selectedCar = 0;
+let selectedDifficulty = 1;
+let selectedLaps = 3;
+
+// Input
+const keys = {};
+window.addEventListener('keydown', e => { keys[e.code] = true; });
+window.addEventListener('keyup', e => { keys[e.code] = false; });
+
+// Car state
+function createRacer(carDef, isPlayer, startT, laneOffset) {
+    const p = getTrackPoint(trackPoints, startT);
+    const tan = getTrackTangent(trackPoints, startT);
+    const norm = getTrackNormal(trackPoints, startT);
+    return {
+        x: p.x + norm.x * laneOffset,
+        z: p.z + norm.z * laneOffset,
+        y: 0.3,
+        angle: Math.atan2(tan.x, tan.z),
+        speed: 0,
+        lateralSpeed: 0,
+        carDef: carDef,
+        isPlayer: isPlayer,
+        drifting: false,
+        driftCharge: 0,
+        driftDir: 0,
+        lap: 0,
+        trackT: startT,
+        lastTrackT: startT,
+        checkpointsPassed: 0,
+        item: null,
+        shieldTimer: 0,
+        boostTimer: 0,
+        spinTimer: 0,
+        slowTimer: 0,
+        finished: false,
+        finishTime: 0,
+        // AI
+        aiTargetT: startT,
+        aiSteerNoise: 0,
+        aiNoiseTimer: 0,
+        aiItemTimer: 0,
+    };
+}
+
+let racers = [];
+let raceTime = 0;
+let countdownTimer = 0;
+let finishOrder = [];
+
+// Camera
+let camX = 0, camY = 20, camZ = 0;
+let camTargetX = 0, camTargetY = 0, camTargetZ = 0;
+let camSmoothX = 0, camSmoothY = 20, camSmoothZ = 0;
+let camSmoothTX = 0, camSmoothTY = 0, camSmoothTZ = 0;
+
+// ---- INIT MENU ----
+function initMenu() {
+    const carSel = document.getElementById('carSelect');
+    carSel.innerHTML = '';
+    CAR_DEFS.forEach((c, i) => {
+        const div = document.createElement('div');
+        div.className = 'car-option' + (i === selectedCar ? ' selected' : '');
+        div.innerHTML = `<div class="car-emoji">${c.emoji}</div><div class="car-name">${c.name}</div>
+            <div class="car-stat">Speed: ${'★'.repeat(Math.round(c.topSpeed/50))}</div>
+            <div class="car-stat">Handling: ${'★'.repeat(Math.round(c.handling*5))}</div>
+            <div class="car-stat">Drift: ${'★'.repeat(Math.round(c.driftFactor*5))}</div>`;
+        div.onclick = () => {
+            selectedCar = i;
+            document.querySelectorAll('.car-option').forEach(e => e.classList.remove('selected'));
+            div.classList.add('selected');
+        };
+        carSel.appendChild(div);
+    });
+
+    const diffSel = document.getElementById('diffSelect');
+    diffSel.innerHTML = '';
+    DIFFICULTIES.forEach((d, i) => {
+        const div = document.createElement('div');
+        div.className = 'diff-option' + (i === selectedDifficulty ? ' selected' : '');
+        div.textContent = d.name;
+        div.onclick = () => {
+            selectedDifficulty = i;
+            diffSel.querySelectorAll('.diff-option').forEach(e => e.classList.remove('selected'));
+            div.classList.add('selected');
+        };
+        diffSel.appendChild(div);
+    });
+
+    const lapSel = document.getElementById('lapSelect');
+    lapSel.innerHTML = '';
+    LAP_OPTIONS.forEach((l, i) => {
+        const div = document.createElement('div');
+        div.className = 'diff-option' + (l === selectedLaps ? ' selected' : '');
+        div.textContent = l + ' Laps';
+        div.onclick = () => {
+            selectedLaps = l;
+            lapSel.querySelectorAll('.diff-option').forEach(e => e.classList.remove('selected'));
+            div.classList.add('selected');
+        };
+        lapSel.appendChild(div);
+    });
+
+    document.getElementById('startBtn').onclick = startRace;
+    document.getElementById('restartBtn').onclick = () => {
+        document.getElementById('results-overlay').style.display = 'none';
+        document.getElementById('menu').style.display = 'flex';
+    };
+}
+
+// ---- INIT RACE ----
+function startRace() {
+    document.getElementById('menu').style.display = 'none';
+    document.getElementById('hud').style.display = 'block';
+    document.getElementById('results-overlay').style.display = 'none';
+    document.getElementById('lapTotal').textContent = selectedLaps;
+
+    racers = [];
+    finishOrder = [];
+    raceTime = 0;
+    particles = [];
+
+    // Place racers on grid - all start just past the finish line
+    const gridStart = 0.05;
+    const player = createRacer(CAR_DEFS[selectedCar], true, gridStart, 0);
+    racers.push(player);
+
+    for (let i = 0; i < NUM_AI; i++) {
+        const aiCarIdx = (selectedCar + i + 1) % CAR_DEFS.length;
+        const lane = ((i % 2 === 0) ? 1 : -1) * (5 + Math.floor(i / 2) * 3);
+        const startT = gridStart - (i + 1) * 0.005;
+        const ai = createRacer(CAR_DEFS[aiCarIdx], false, startT, lane);
+        racers.push(ai);
+    }
+
+    // Item boxes along track
+    itemBoxes = [];
+    for (let i = 0; i < ITEM_BOX_COUNT; i++) {
+        const t = i / ITEM_BOX_COUNT;
+        const p = getTrackPoint(trackPoints, t);
+        const n = getTrackNormal(trackPoints, t);
+        const offset = (Math.random() - 0.5) * 20;
+        itemBoxes.push({
+            x: p.x + n.x * offset,
+            z: p.z + n.z * offset,
+            y: 2,
+            active: true,
+            respawnTimer: 0,
+            rotation: Math.random() * Math.PI * 2,
+        });
+    }
+
+    gameState = 'countdown';
+    countdownTimer = 3.5;
+
+    // Initialize camera behind player
+    const p = racers[0];
+    camSmoothX = p.x - Math.sin(p.angle) * 14;
+    camSmoothZ = p.z - Math.cos(p.angle) * 14;
+    camSmoothY = p.y + 12;
+    camSmoothTX = p.x + Math.sin(p.angle) * 8;
+    camSmoothTZ = p.z + Math.cos(p.angle) * 8;
+    camSmoothTY = p.y + 1;
+}
+
+// ---- PHYSICS ----
+const BASE_TOP_SPEED = 120;
+const BASE_ACCEL = 80;
+const BRAKE_FORCE = 120;
+const FRICTION_PER_SEC = 0.15; // speed decay factor per second (lower = less friction)
+const TURN_SPEED = 2.8;
+const DRIFT_TURN_MULT = 1.6;
+const DRIFT_CHARGE_RATE = 1.0;
+const DRIFT_BOOST_SMALL = 1.4;
+const DRIFT_BOOST_BIG = 2.0;
+const DRIFT_BOOST_MEGA = 2.8;
+const DRIFT_LATERAL_FORCE = 0.35;
+const TRACK_HALF_WIDTH = 17;
+const OFF_ROAD_SLOW = 0.55;
+const BOOST_SPEED_MULT = 1.6;
+const COLLISION_RADIUS = 2.5;
+const ITEM_PICKUP_RADIUS = 4;
+
+function updateRacer(racer, dt, difficulty) {
+    if (racer.finished) return;
+
+    // Timers
+    if (racer.shieldTimer > 0) racer.shieldTimer -= dt;
+    if (racer.boostTimer > 0) racer.boostTimer -= dt;
+    if (racer.spinTimer > 0) {
+        racer.spinTimer -= dt;
+        racer.angle += 8 * dt;
+        racer.speed *= 0.95;
+        return;
+    }
+    if (racer.slowTimer > 0) {
+        racer.slowTimer -= dt;
+    }
+
+    const def = racer.carDef;
+    const topSpeed = BASE_TOP_SPEED * (def.topSpeed / 200);
+    const accel = BASE_ACCEL * def.accel;
+    const handling = TURN_SPEED * def.handling;
+
+    let throttle = 0;
+    let steer = 0;
+    let wantDrift = false;
+    let useItem = false;
+
+    if (racer.isPlayer) {
+        if (keys['ArrowUp'] || keys['KeyW']) throttle = 1;
+        if (keys['ArrowDown'] || keys['KeyS']) throttle = -0.5;
+        if (keys['ArrowLeft'] || keys['KeyA']) steer = 1;
+        if (keys['ArrowRight'] || keys['KeyD']) steer = -1;
+        wantDrift = keys['ShiftLeft'] || keys['ShiftRight'];
+        useItem = keys['Space'];
+        if (useItem) keys['Space'] = false; // consume
+    } else {
+        // AI
+        const aiResult = updateAI(racer, dt, difficulty);
+        throttle = aiResult.throttle;
+        steer = aiResult.steer;
+        wantDrift = aiResult.drift;
+        useItem = aiResult.useItem;
+    }
+
+    // Speed
+    let effectiveTopSpeed = topSpeed;
+    if (racer.boostTimer > 0) effectiveTopSpeed *= BOOST_SPEED_MULT;
+    if (racer.slowTimer > 0) effectiveTopSpeed *= 0.5;
+
+    // Check if off-road
+    const trackInfo = closestTrackT(trackPoints, racer.x, racer.z);
+    racer.trackT = trackInfo.t;
+    const isOffRoad = trackInfo.dist > TRACK_HALF_WIDTH;
+    if (isOffRoad) effectiveTopSpeed *= OFF_ROAD_SLOW;
+
+    if (throttle > 0) {
+        racer.speed += accel * throttle * dt;
+    } else if (throttle < 0) {
+        racer.speed += BRAKE_FORCE * throttle * dt;
+    }
+    // Frame-rate independent friction: speed decays by FRICTION_PER_SEC fraction per second
+    racer.speed *= (1.0 - FRICTION_PER_SEC * dt);
+    racer.speed = clamp(racer.speed, -20, effectiveTopSpeed);
+
+    // Steering
+    const speedFactor = clamp(Math.abs(racer.speed) / 30, 0.3, 1);
+    let turnRate = handling * speedFactor;
+
+    // Drift
+    if (wantDrift && Math.abs(racer.speed) > 20 && Math.abs(steer) > 0.1) {
+        if (!racer.drifting) {
+            racer.drifting = true;
+            racer.driftDir = steer > 0 ? 1 : -1;
+            racer.driftCharge = 0;
+        }
+        turnRate *= DRIFT_TURN_MULT * def.driftFactor;
+        racer.driftCharge += DRIFT_CHARGE_RATE * dt;
+        // Lateral slide
+        racer.lateralSpeed = racer.driftDir * DRIFT_LATERAL_FORCE * racer.speed;
+
+        // Drift particles
+        if (racer.speed > 10) {
+            const sparkColor = racer.driftCharge < 1 ? [1, 0.6, 0.2] :
+                               racer.driftCharge < 2 ? [0.5, 0.5, 1] : [1, 0.3, 1];
+            for (let w = 0; w < 2; w++) {
+                const wx = racer.x + Math.cos(racer.angle + Math.PI) * 1.5 + (Math.random()-0.5)*1.5;
+                const wz = racer.z + Math.sin(racer.angle + Math.PI) * 1.5 + (Math.random()-0.5)*1.5;
+                spawnParticle(wx, 0.3, wz,
+                    (Math.random()-0.5)*3, Math.random()*3, (Math.random()-0.5)*3,
+                    sparkColor[0], sparkColor[1], sparkColor[2], 0.5 + Math.random()*0.3, 2+Math.random()*2);
+            }
+        }
+    } else {
+        if (racer.drifting) {
+            // Release drift boost
+            let boostAmount = 0;
+            if (racer.driftCharge >= 2.5) boostAmount = DRIFT_BOOST_MEGA;
+            else if (racer.driftCharge >= 1.5) boostAmount = DRIFT_BOOST_BIG;
+            else if (racer.driftCharge >= 0.5) boostAmount = DRIFT_BOOST_SMALL;
+
+            if (boostAmount > 0) {
+                racer.boostTimer = boostAmount * 0.5;
+                // Boost particles
+                for (let p = 0; p < 15; p++) {
+                    spawnParticle(racer.x, 0.5, racer.z,
+                        (Math.random()-0.5)*8, Math.random()*5, (Math.random()-0.5)*8,
+                        1, 0.5 + Math.random()*0.5, 0, 0.6, 3+Math.random()*3);
+                }
+            }
+            racer.drifting = false;
+            racer.driftCharge = 0;
+        }
+        racer.lateralSpeed *= 0.9;
+    }
+
+    racer.angle += steer * turnRate * dt;
+
+    // Movement
+    const moveX = Math.sin(racer.angle) * racer.speed * dt;
+    const moveZ = Math.cos(racer.angle) * racer.speed * dt;
+    const latX = Math.cos(racer.angle) * racer.lateralSpeed * dt;
+    const latZ = -Math.sin(racer.angle) * racer.lateralSpeed * dt;
+
+    racer.x += moveX + latX;
+    racer.z += moveZ + latZ;
+
+    // Off-road particles
+    if (isOffRoad && racer.speed > 5) {
+        spawnParticle(racer.x, 0.2, racer.z,
+            (Math.random()-0.5)*3, Math.random()*2, (Math.random()-0.5)*3,
+            0.4, 0.3, 0.15, 0.4, 2);
+    }
+
+    // Boost exhaust particles
+    if (racer.boostTimer > 0) {
+        const bx = racer.x - Math.sin(racer.angle) * 2.5;
+        const bz = racer.z - Math.cos(racer.angle) * 2.5;
+        for (let p = 0; p < 3; p++) {
+            spawnParticle(bx + (Math.random()-0.5), 0.5, bz + (Math.random()-0.5),
+                -Math.sin(racer.angle)*10 + (Math.random()-0.5)*3,
+                Math.random()*3,
+                -Math.cos(racer.angle)*10 + (Math.random()-0.5)*3,
+                1, 0.4 + Math.random()*0.3, 0, 0.4, 3);
+        }
+    }
+
+    // Boundary check - if too far off track, respawn on track
+    if (trackInfo.dist > 80) {
+        const respawnP = getTrackPoint(trackPoints, racer.trackT);
+        const respawnTan = getTrackTangent(trackPoints, racer.trackT);
+        racer.x = respawnP.x;
+        racer.z = respawnP.z;
+        racer.angle = Math.atan2(respawnTan.x, respawnTan.z);
+        racer.speed *= 0.3;
+        racer.lateralSpeed = 0;
+    }
+
+    // Use item
+    if (useItem && racer.item !== null) {
+        activateItem(racer);
+    }
+
+    // Lap tracking
+    const prevT = racer.lastTrackT;
+    const curT = racer.trackT;
+
+    // Detect crossing start line (t wraps from ~1.0 to ~0.0)
+    if (prevT > 0.9 && curT < 0.1) {
+        racer.lap++;
+        if (racer.lap >= selectedLaps && !racer.finished) {
+            racer.finished = true;
+            racer.finishTime = raceTime;
+            finishOrder.push(racer);
+            if (racer.isPlayer) {
+                showRaceMessage('Finished!');
+            }
+            if (finishOrder.length >= TOTAL_RACERS) {
+                setTimeout(showResults, 2000);
+            }
+        }
+    }
+    // Detect wrong way (t wraps from ~0.0 to ~1.0)
+    if (prevT < 0.1 && curT > 0.9) {
+        if (racer.lap > 0) racer.lap--;
+    }
+
+    racer.lastTrackT = curT;
+}
+
+// ---- AI SYSTEM ----
+function updateAI(racer, dt, difficulty) {
+    const diff = DIFFICULTIES[difficulty];
+    let throttle = 1.0;
+    let steer = 0;
+    let drift = false;
+    let useItem = false;
+
+    // AI looks ahead on track and steers toward that point
+    const lookAhead = 0.02 + (racer.speed / BASE_TOP_SPEED) * 0.03;
+    const targetT = (racer.trackT + lookAhead) % 1;
+    const targetP = getTrackPoint(trackPoints, targetT);
+
+    // Add slight noise for natural feel
+    racer.aiNoiseTimer -= dt;
+    if (racer.aiNoiseTimer <= 0) {
+        racer.aiSteerNoise = (Math.random() - 0.5) * (1 - diff.aiHandling) * 0.5;
+        racer.aiNoiseTimer = 0.3 + Math.random() * 0.5;
+    }
+
+    const dx = targetP.x - racer.x;
+    const dz = targetP.z - racer.z;
+    const targetAngle = Math.atan2(dx, dz);
+
+    let angleDiff = targetAngle - racer.angle;
+    while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+    while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+
+    steer = clamp(angleDiff * 3 * diff.aiHandling + racer.aiSteerNoise, -1, 1);
+
+    // Speed management - AI speed controlled via throttle multiplier only
+    const speedMult = diff.aiSpeed;
+    if (Math.abs(angleDiff) > 0.5) {
+        throttle = 0.6; // slow for turns
+    }
+
+    // Keep AI on track - if far off, steer more aggressively back
+    const trackInfo = closestTrackT(trackPoints, racer.x, racer.z);
+    if (trackInfo.dist > TRACK_HALF_WIDTH * 0.8) {
+        const trackP = getTrackPoint(trackPoints, trackInfo.t);
+        const toTrackX = trackP.x - racer.x;
+        const toTrackZ = trackP.z - racer.z;
+        const toTrackAngle = Math.atan2(toTrackX, toTrackZ);
+        let toTrackDiff = toTrackAngle - racer.angle;
+        while (toTrackDiff > Math.PI) toTrackDiff -= Math.PI * 2;
+        while (toTrackDiff < -Math.PI) toTrackDiff += Math.PI * 2;
+        steer = clamp(steer + toTrackDiff * 2, -1, 1);
+    }
+
+    // AI drifting on sharp turns
+    if (Math.abs(angleDiff) > 0.4 && racer.speed > 30 && diff.aiAggression > 0.4) {
+        drift = true;
+    }
+
+    // AI item usage
+    racer.aiItemTimer -= dt;
+    if (racer.item !== null && racer.aiItemTimer <= 0) {
+        useItem = true;
+        racer.aiItemTimer = 2 + Math.random() * 3;
+    }
+
+    // Collision avoidance with other racers
+    for (const other of racers) {
+        if (other === racer) continue;
+        const ox = other.x - racer.x;
+        const oz = other.z - racer.z;
+        const dist = Math.sqrt(ox * ox + oz * oz);
+        if (dist < 8 && dist > 0) {
+            const avoidAngle = Math.atan2(ox, oz);
+            let avoidDiff = avoidAngle - racer.angle;
+            while (avoidDiff > Math.PI) avoidDiff -= Math.PI * 2;
+            while (avoidDiff < -Math.PI) avoidDiff += Math.PI * 2;
+            if (Math.abs(avoidDiff) < 1.0) {
+                steer -= Math.sign(avoidDiff) * 0.3 * diff.aiAggression;
+            }
+        }
+    }
+
+    return { throttle: throttle * speedMult, steer, drift, useItem };
+}
+
+// ---- ITEMS ----
+function pickupItem(racer) {
+    if (racer.item !== null) return;
+    // Weight items by position (worse position = better items)
+    const pos = getRacerPosition(racer);
+    const weights = pos <= 2 ? [3, 1, 1, 2, 0] : pos <= 4 ? [2, 2, 1, 1, 1] : [1, 2, 2, 1, 2];
+    const total = weights.reduce((a,b) => a+b, 0);
+    let r = Math.random() * total;
+    for (let i = 0; i < weights.length; i++) {
+        r -= weights[i];
+        if (r <= 0) {
+            racer.item = ITEMS[i];
+            return;
+        }
+    }
+    racer.item = ITEMS[0];
+}
+
+function activateItem(racer) {
+    const item = racer.item;
+    racer.item = null;
+    if (!item) return;
+
+    switch (item.name) {
+        case 'Boost':
+            racer.boostTimer = item.duration;
+            for (let p = 0; p < 20; p++) {
+                spawnParticle(racer.x, 0.5, racer.z,
+                    (Math.random()-0.5)*10, Math.random()*5, (Math.random()-0.5)*10,
+                    1, 0.6, 0, 0.5, 3);
+            }
+            break;
+        case 'Missile': {
+            // Hit the racer directly ahead
+            let target = null;
+            let bestDist = Infinity;
+            for (const other of racers) {
+                if (other === racer || other.finished) continue;
+                if (other.shieldTimer > 0) continue;
+                const dx = other.x - racer.x;
+                const dz = other.z - racer.z;
+                const dist = Math.sqrt(dx*dx + dz*dz);
+                // Must be roughly ahead
+                const dot = Math.sin(racer.angle)*dx + Math.cos(racer.angle)*dz;
+                if (dot > 0 && dist < 100 && dist < bestDist) {
+                    bestDist = dist;
+                    target = other;
+                }
+            }
+            if (target) {
+                target.spinTimer = 1.5;
+                target.speed *= 0.3;
+                for (let p = 0; p < 30; p++) {
+                    spawnParticle(target.x, 1, target.z,
+                        (Math.random()-0.5)*15, Math.random()*8, (Math.random()-0.5)*15,
+                        1, 0.3, 0, 0.6, 4);
+                }
+            }
+            break;
+        }
+        case 'Shield':
+            racer.shieldTimer = item.duration;
+            break;
+        case 'Oil Slick': {
+            // Drop oil behind
+            const ox = racer.x - Math.sin(racer.angle) * 5;
+            const oz = racer.z - Math.cos(racer.angle) * 5;
+            // Create a temporary hazard (we'll add to barriers temporarily)
+            barriers.push({
+                x: ox, z: oz, type: 'oil', timer: 8,
+                radius: 3,
+            });
+            break;
+        }
+        case 'Lightning': {
+            // Slow all racers ahead
+            for (const other of racers) {
+                if (other === racer || other.finished) continue;
+                if (other.shieldTimer > 0) continue;
+                const otherPos = getRacerPosition(other);
+                const myPos = getRacerPosition(racer);
+                if (otherPos < myPos) {
+                    other.slowTimer = 2.0;
+                    other.speed *= 0.5;
+                    for (let p = 0; p < 10; p++) {
+                        spawnParticle(other.x, 2, other.z,
+                            (Math.random()-0.5)*5, Math.random()*8, (Math.random()-0.5)*5,
+                            0.8, 0.8, 1, 0.5, 2);
+                    }
+                }
+            }
+            break;
+        }
+    }
+}
+
+// ---- COLLISIONS ----
+function handleCollisions() {
+    for (let i = 0; i < racers.length; i++) {
+        for (let j = i + 1; j < racers.length; j++) {
+            const a = racers[i], b = racers[j];
+            const dx = b.x - a.x;
+            const dz = b.z - a.z;
+            const dist = Math.sqrt(dx*dx + dz*dz);
+            if (dist < COLLISION_RADIUS * 2 && dist > 0) {
+                const overlap = COLLISION_RADIUS * 2 - dist;
+                const nx = dx / dist, nz = dz / dist;
+                const massA = a.carDef.weight;
+                const massB = b.carDef.weight;
+                const totalMass = massA + massB;
+
+                a.x -= nx * overlap * (massB / totalMass);
+                a.z -= nz * overlap * (massB / totalMass);
+                b.x += nx * overlap * (massA / totalMass);
+                b.z += nz * overlap * (massA / totalMass);
+
+                // Transfer some speed
+                const relSpeed = (a.speed - b.speed) * 0.3;
+                a.speed -= relSpeed * (massB / totalMass);
+                b.speed += relSpeed * (massA / totalMass);
+
+                // Collision sparks
+                const mx = (a.x + b.x) / 2;
+                const mz = (a.z + b.z) / 2;
+                for (let p = 0; p < 5; p++) {
+                    spawnParticle(mx, 0.5, mz,
+                        (Math.random()-0.5)*8, Math.random()*4, (Math.random()-0.5)*8,
+                        1, 0.8, 0.3, 0.3, 2);
+                }
+            }
+        }
+    }
+
+    // Item box pickups
+    for (const racer of racers) {
+        for (const box of itemBoxes) {
+            if (!box.active) continue;
+            const dx = box.x - racer.x;
+            const dz = box.z - racer.z;
+            if (dx*dx + dz*dz < ITEM_PICKUP_RADIUS * ITEM_PICKUP_RADIUS) {
+                box.active = false;
+                box.respawnTimer = 5;
+                pickupItem(racer);
+                for (let p = 0; p < 10; p++) {
+                    spawnParticle(box.x, 2, box.z,
+                        (Math.random()-0.5)*6, Math.random()*6, (Math.random()-0.5)*6,
+                        1, 0.85, 0, 0.5, 3);
+                }
+            }
+        }
+    }
+
+    // Oil slick hazards
+    for (let i = barriers.length - 1; i >= 0; i--) {
+        const b = barriers[i];
+        if (b.type !== 'oil') continue;
+        b.timer -= 1/60;
+        if (b.timer <= 0) { barriers.splice(i, 1); continue; }
+        for (const racer of racers) {
+            if (racer.spinTimer > 0 || racer.shieldTimer > 0) continue;
+            const dx = b.x - racer.x;
+            const dz = b.z - racer.z;
+            if (dx*dx + dz*dz < b.radius * b.radius) {
+                racer.spinTimer = 1.0;
+                racer.speed *= 0.4;
+            }
+        }
+    }
+}
+
+// ---- RACE POSITION ----
+function getRacerPosition(racer) {
+    let pos = 1;
+    const myProgress = racer.lap + racer.trackT;
+    for (const other of racers) {
+        if (other === racer) continue;
+        const otherProgress = other.lap + other.trackT;
+        if (otherProgress > myProgress) pos++;
+    }
+    return pos;
+}
+
+function getPositionSuffix(pos) {
+    if (pos === 1) return 'st';
+    if (pos === 2) return 'nd';
+    if (pos === 3) return 'rd';
+    return 'th';
+}
+
+// ---- UI ----
+function showRaceMessage(text) {
+    const el = document.getElementById('raceMessage');
+    el.textContent = text;
+    el.style.opacity = '1';
+    setTimeout(() => { el.style.opacity = '0'; }, 2000);
+}
+
+function showResults() {
+    gameState = 'finished';
+    document.getElementById('hud').style.display = 'none';
+    const overlay = document.getElementById('results-overlay');
+    overlay.style.display = 'flex';
+
+    const playerRacer = racers.find(r => r.isPlayer);
+    const playerPos = finishOrder.indexOf(playerRacer) + 1;
+    document.getElementById('resultsTitle').textContent =
+        playerPos === 1 ? 'Victory!' : playerPos <= 3 ? 'Podium Finish!' : 'Race Complete!';
+
+    let html = '';
+    finishOrder.forEach((r, i) => {
+        const cls = r.isPlayer ? 'result-player' : '';
+        const name = r.isPlayer ? 'You' : `AI ${r.carDef.name}`;
+        const time = r.finishTime.toFixed(1) + 's';
+        html += `<div class="${cls}">${i+1}${getPositionSuffix(i+1)} - ${name} (${time})</div>`;
+    });
+    document.getElementById('resultList').innerHTML = html;
+}
+
+function updateHUD() {
+    const player = racers[0];
+    const speed = Math.abs(player.speed) * 1.8; // Convert to km/h-ish display
+    document.getElementById('speedValue').textContent = Math.round(speed);
+
+    const pos = getRacerPosition(player);
+    document.getElementById('posValue').textContent = pos;
+    document.getElementById('posSuffix').textContent = getPositionSuffix(pos);
+
+    document.getElementById('lapValue').textContent = Math.max(1, Math.min(player.lap + 1, selectedLaps));
+
+    const itemPanel = document.getElementById('itemPanel');
+    itemPanel.textContent = player.item ? player.item.emoji : '-';
+
+    const driftBar = document.getElementById('driftBar');
+    if (player.drifting) {
+        const pct = clamp(player.driftCharge / 3 * 100, 0, 100);
+        driftBar.style.width = pct + '%';
+        if (player.driftCharge >= 2.5) driftBar.style.background = 'linear-gradient(90deg, #ff6bff, #ff6b6b)';
+        else if (player.driftCharge >= 1.5) driftBar.style.background = 'linear-gradient(90deg, #6b6bff, #6bffff)';
+        else driftBar.style.background = 'linear-gradient(90deg, #ff6b6b, #ffdd57)';
+    } else {
+        driftBar.style.width = '0%';
+    }
+
+    // Wrong way indicator
+    const tan = getTrackTangent(trackPoints, player.trackT);
+    const dotFwd = Math.sin(player.angle) * tan.x + Math.cos(player.angle) * tan.z;
+    const wrongWayEl = document.getElementById('wrongWay');
+    wrongWayEl.style.opacity = (dotFwd < -0.3 && player.speed > 5) ? '1' : '0';
+}
+
+// ---- MINIMAP ----
+function drawMinimap() {
+    const mc = document.getElementById('minimapCanvas');
+    const ctx = mc.getContext('2d');
+    ctx.clearRect(0, 0, 160, 160);
+
+    const scale = 0.2;
+    const cx = 80, cy = 80;
+
+    // Draw track
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    for (let i = 0; i <= trackPoints.length; i++) {
+        const t = i / trackPoints.length;
+        const p = getTrackPoint(trackPoints, t);
+        const sx = cx + p.x * scale;
+        const sy = cy + p.z * scale;
+        if (i === 0) ctx.moveTo(sx, sy);
+        else ctx.lineTo(sx, sy);
+    }
+    ctx.stroke();
+
+    // Draw racers
+    for (const r of racers) {
+        const sx = cx + r.x * scale;
+        const sy = cy + r.z * scale;
+        ctx.fillStyle = r.isPlayer ? '#ffdd57' :
+            `rgb(${Math.round(r.carDef.color[0]*255)},${Math.round(r.carDef.color[1]*255)},${Math.round(r.carDef.color[2]*255)})`;
+        ctx.beginPath();
+        ctx.arc(sx, sy, r.isPlayer ? 4 : 3, 0, Math.PI * 2);
+        ctx.fill();
+    }
+}
+
+// ---- CAMERA ----
+function updateCamera(dt) {
+    const player = racers[0];
+    const behindDist = 14;
+    const heightAbove = 12;
+    const lookAheadDist = 8;
+
+    // Camera position: behind and above the car
+    const targetCamX = player.x - Math.sin(player.angle) * behindDist;
+    const targetCamZ = player.z - Math.cos(player.angle) * behindDist;
+    const targetCamY = player.y + heightAbove;
+
+    // Look-at point: slightly ahead of the car, at car level
+    const targetLookX = player.x + Math.sin(player.angle) * lookAheadDist;
+    const targetLookZ = player.z + Math.cos(player.angle) * lookAheadDist;
+    const targetLookY = player.y + 1;
+
+    // Smooth camera
+    const camSmooth = 5 * dt;
+    camSmoothX = lerp(camSmoothX, targetCamX, camSmooth);
+    camSmoothY = lerp(camSmoothY, targetCamY, camSmooth);
+    camSmoothZ = lerp(camSmoothZ, targetCamZ, camSmooth);
+    camSmoothTX = lerp(camSmoothTX, targetLookX, camSmooth);
+    camSmoothTY = lerp(camSmoothTY, targetLookY, camSmooth);
+    camSmoothTZ = lerp(camSmoothTZ, targetLookZ, camSmooth);
+
+    // Boost camera effect (zoom out slightly)
+    if (player.boostTimer > 0) {
+        camSmoothY += 3;
+        const boostBack = 5;
+        camSmoothX -= Math.sin(player.angle) * boostBack;
+        camSmoothZ -= Math.cos(player.angle) * boostBack;
+    }
+}
+
+// ---- SCENERY ----
+function generateScenery() {
+    trees = [];
+    // Place trees around the track but not on it
+    for (let i = 0; i < 120; i++) {
+        const t = Math.random();
+        const p = getTrackPoint(trackPoints, t);
+        const n = getTrackNormal(trackPoints, t);
+        const side = Math.random() > 0.5 ? 1 : -1;
+        const dist = 30 + Math.random() * 80;
+        trees.push({
+            x: p.x + n.x * side * dist + (Math.random()-0.5)*20,
+            z: p.z + n.z * side * dist + (Math.random()-0.5)*20,
+            scale: 0.6 + Math.random() * 0.8,
+            rotation: Math.random() * Math.PI * 2,
+        });
+    }
+}
+
+// ---- MAIN LOOP ----
+let lastTime = 0;
+
+function resize() {
+    canvas.width = window.innerWidth * window.devicePixelRatio;
+    canvas.height = window.innerHeight * window.devicePixelRatio;
+    gl.viewport(0, 0, canvas.width, canvas.height);
+}
+
+function init() {
+    resize();
+    window.addEventListener('resize', resize);
+
+    initShaders();
+    initParticles();
+
+    trackPoints = buildTrack();
+    trackMesh = buildTrackMesh(trackPoints);
+    groundMesh = buildGroundMesh();
+    itemBoxMesh = buildItemBoxMesh();
+    barrierMesh = buildBarrierMesh();
+    treeMesh = buildTreeMesh();
+
+    carMeshes = CAR_DEFS.map(c => buildCarMesh(c.color));
+
+    generateScenery();
+    initMenu();
+
+    gl.enable(gl.DEPTH_TEST);
+    gl.enable(gl.CULL_FACE);
+    gl.cullFace(gl.BACK);
+
+    requestAnimationFrame(gameLoop);
+}
+
+function gameLoop(time) {
+    const dt = Math.min((time - lastTime) / 1000, 0.05);
+    lastTime = time;
+
+    if (gameState === 'countdown') {
+        countdownTimer -= dt;
+        const el = document.getElementById('countdown');
+        if (countdownTimer > 0.5) {
+            el.textContent = Math.ceil(countdownTimer - 0.5);
+            el.style.opacity = '1';
+        } else if (countdownTimer > 0) {
+            el.textContent = 'GO!';
+            el.style.opacity = '1';
+        } else {
+            el.style.opacity = '0';
+            gameState = 'racing';
+        }
+    }
+
+    if (gameState === 'racing') {
+        raceTime += dt;
+        for (const racer of racers) {
+            updateRacer(racer, dt, selectedDifficulty);
+        }
+        handleCollisions();
+
+        // Update item boxes
+        for (const box of itemBoxes) {
+            if (!box.active) {
+                box.respawnTimer -= dt;
+                if (box.respawnTimer <= 0) box.active = true;
+            }
+            box.rotation += dt * 2;
+        }
+    }
+
+    if (racers.length > 0) {
+        updateCamera(dt);
+    }
+    updateParticles(dt);
+
+    if (gameState !== 'menu') {
+        updateHUD();
+        drawMinimap();
+    }
+
+    render();
+    requestAnimationFrame(gameLoop);
+}
+
+function render() {
+    gl.clearColor(0.55, 0.75, 0.95, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    const aspect = canvas.width / canvas.height;
+    const projMat = mat4Perspective(Math.PI / 4, aspect, 0.5, 1500);
+
+    let viewMat;
+    if (gameState === 'menu' || gameState === 'finished') {
+        // Orbiting camera for menu
+        const t = lastTime * 0.0003;
+        const r = 250;
+        const ex = Math.cos(t) * r;
+        const ez = Math.sin(t) * r;
+        viewMat = mat4LookAt([ex, 80, ez], [0, 0, 0], [0, 1, 0]);
+    } else {
+        viewMat = mat4LookAt(
+            [camSmoothX, camSmoothY, camSmoothZ],
+            [camSmoothTX, camSmoothTY, camSmoothTZ],
+            [0, 1, 0]
+        );
+    }
+
+    const vpMat = mat4Multiply(projMat, viewMat);
+
+    gl.useProgram(prog);
+    gl.uniform3f(pLocs.uLightDir, 0.4, 0.8, 0.3);
+    gl.uniform3f(pLocs.uFogColor, 0.55, 0.75, 0.95);
+    gl.uniform1f(pLocs.uFogDensity, 0.0015);
+
+    // Ground
+    drawMesh(groundMesh, mat4Identity(), vpMat);
+
+    // Track
+    drawMesh(trackMesh, mat4Identity(), vpMat);
+
+    // Trees
+    for (const tree of trees) {
+        const model = mat4Multiply(
+            mat4Multiply(mat4Translate(tree.x, 0, tree.z), mat4RotateY(tree.rotation)),
+            mat4Scale(tree.scale, tree.scale, tree.scale)
+        );
+        drawMesh(treeMesh, model, vpMat);
+    }
+
+    // Item boxes
+    for (const box of itemBoxes) {
+        if (!box.active) continue;
+        const bobY = Math.sin(lastTime * 0.003 + box.x) * 0.5 + 2;
+        const model = mat4Multiply(
+            mat4Translate(box.x, bobY, box.z),
+            mat4RotateY(box.rotation)
+        );
+        drawMesh(itemBoxMesh, model, vpMat);
+    }
+
+    // Oil slicks (drawn as flat dark patches)
+    for (const b of barriers) {
+        if (b.type !== 'oil') continue;
+        const model = mat4Multiply(
+            mat4Translate(b.x, 0.05, b.z),
+            mat4Scale(b.radius, 0.1, b.radius)
+        );
+        // Draw as a dark box
+        drawMesh(barrierMesh, model, vpMat);
+    }
+
+    // Cars
+    for (let i = 0; i < racers.length; i++) {
+        const r = racers[i];
+        const carIdx = CAR_DEFS.indexOf(r.carDef);
+        const mesh = carMeshes[carIdx];
+
+        let model = mat4Multiply(
+            mat4Translate(r.x, r.y, r.z),
+            mat4RotateY(r.angle)
+        );
+
+        // Tilt during drift
+        if (r.drifting) {
+            const tilt = mat4Identity();
+            const tiltAngle = r.driftDir * 0.1;
+            // Simple Z-axis rotation approximation for tilt
+            tilt[0] = Math.cos(tiltAngle);
+            tilt[1] = Math.sin(tiltAngle);
+            tilt[4] = -Math.sin(tiltAngle);
+            tilt[5] = Math.cos(tiltAngle);
+            model = mat4Multiply(model, tilt);
+        }
+
+        drawMesh(mesh, model, vpMat);
+
+        // Shield visual
+        if (r.shieldTimer > 0) {
+            const shieldScale = 2.5;
+            const shieldModel = mat4Multiply(
+                mat4Translate(r.x, r.y + 1, r.z),
+                mat4Scale(shieldScale, shieldScale, shieldScale)
+            );
+            // Draw semi-transparent shield (reuse barrier mesh)
+            gl.enable(gl.BLEND);
+            gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+            drawMesh(itemBoxMesh, shieldModel, vpMat);
+            gl.disable(gl.BLEND);
+        }
+    }
+
+    // Particles
+    drawParticles(vpMat);
+}
+
+init();
+</script>
+</body>
+</html>
