@@ -164,6 +164,47 @@
             opacity: 0;
             transition: opacity 0.3s;
         }
+        #hud .timer-panel {
+            position: absolute;
+            top: 90px;
+            right: 30px;
+            background: rgba(0,0,0,0.6);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 12px;
+            padding: 12px 20px;
+            backdrop-filter: blur(10px);
+        }
+        #hud .timer-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            opacity: 0.4;
+            margin-bottom: 2px;
+        }
+        #hud .timer-value {
+            font-size: 24px;
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+        }
+        #hud .best-lap {
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }
+        #hud .best-lap .timer-value {
+            color: #a78bfa;
+            font-size: 20px;
+        }
+        #hud .new-best {
+            color: #ffdd57;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            margin-top: 4px;
+        }
 
         /* Menu */
         #menu {
@@ -354,6 +395,15 @@
     <div class="countdown" id="countdown"></div>
     <div class="race-message" id="raceMessage"></div>
     <div class="wrong-way" id="wrongWay">WRONG WAY!</div>
+    <div class="timer-panel">
+        <div class="timer-label">Current Lap</div>
+        <div class="timer-value" id="lapTimer">0:00.000</div>
+        <div class="best-lap">
+            <div class="timer-label">Best Lap</div>
+            <div class="timer-value" id="bestLapTimer">-:--.---</div>
+        </div>
+        <div class="new-best" id="newBestLabel">New Best!</div>
+    </div>
     <canvas class="minimap" id="minimapCanvas" width="160" height="160"></canvas>
 </div>
 
@@ -884,6 +934,54 @@ function buildItemBoxMesh() {
     return buildBox(2.5, 2.5, 2.5, [1.0, 0.85, 0.0]);
 }
 
+function buildFinishLineMesh(trackPoints) {
+    const verts = [];
+    const indices = [];
+    const ROAD_WIDTH = 18;
+    const LINE_WIDTH = 6;
+    const SQUARES = 14;
+
+    const t0 = 0;
+    const p0 = getTrackPoint(trackPoints, t0);
+    const tan = getTrackTangent(trackPoints, t0);
+    const norm = getTrackNormal(trackPoints, t0);
+
+    const squareSize = (ROAD_WIDTH * 2) / SQUARES;
+    let vi = 0;
+
+    for (let col = 0; col < SQUARES; col++) {
+        for (let row = 0; row < 2; row++) {
+            const isWhite = (col + row) % 2 === 0;
+            const cr = isWhite ? 0.95 : 0.08;
+            const cg = isWhite ? 0.95 : 0.08;
+            const cb = isWhite ? 0.95 : 0.08;
+
+            const offsetAcross = -ROAD_WIDTH + col * squareSize;
+            const offsetAlong = -LINE_WIDTH / 2 + row * (LINE_WIDTH / 2);
+
+            const x0 = p0.x + norm.x * offsetAcross + tan.x * offsetAlong;
+            const z0 = p0.z + norm.z * offsetAcross + tan.z * offsetAlong;
+            const x1 = p0.x + norm.x * (offsetAcross + squareSize) + tan.x * offsetAlong;
+            const z1 = p0.z + norm.z * (offsetAcross + squareSize) + tan.z * offsetAlong;
+            const x2 = p0.x + norm.x * (offsetAcross + squareSize) + tan.x * (offsetAlong + LINE_WIDTH / 2);
+            const z2 = p0.z + norm.z * (offsetAcross + squareSize) + tan.z * (offsetAlong + LINE_WIDTH / 2);
+            const x3 = p0.x + norm.x * offsetAcross + tan.x * (offsetAlong + LINE_WIDTH / 2);
+            const z3 = p0.z + norm.z * offsetAcross + tan.z * (offsetAlong + LINE_WIDTH / 2);
+
+            const y = 0.08;
+            verts.push(x0, y, z0, 0, 1, 0, cr, cg, cb);
+            verts.push(x1, y, z1, 0, 1, 0, cr, cg, cb);
+            verts.push(x2, y, z2, 0, 1, 0, cr, cg, cb);
+            verts.push(x3, y, z3, 0, 1, 0, cr, cg, cb);
+
+            indices.push(vi, vi + 2, vi + 1, vi, vi + 3, vi + 2);
+            vi += 4;
+        }
+    }
+
+    return buildMesh(verts, indices);
+}
+
 function buildBarrierMesh() {
     return buildBox(1.5, 2.0, 1.5, [0.8, 0.8, 0.8]);
 }
@@ -997,7 +1095,7 @@ function drawParticles(vpMat) {
 
 // ---- GAME STATE ----
 let trackPoints;
-let trackMesh, groundMesh, carMeshes, itemBoxMesh, barrierMesh, treeMesh;
+let trackMesh, groundMesh, carMeshes, itemBoxMesh, barrierMesh, treeMesh, finishLineMesh;
 let itemBoxes = [];
 let trees = [];
 let barriers = [];
@@ -1045,6 +1143,12 @@ function createRacer(carDef, isPlayer, startT, laneOffset) {
         aiSteerNoise: 0,
         aiNoiseTimer: 0,
         aiItemTimer: 0,
+        // Lap timing
+        lapStartTime: 0,
+        currentLapTime: 0,
+        bestLapTime: Infinity,
+        lastLapTime: 0,
+        newBestTimer: 0,
     };
 }
 
@@ -1201,6 +1305,7 @@ function updateRacer(racer, dt, difficulty) {
     if (racer.slowTimer > 0) {
         racer.slowTimer -= dt;
     }
+    if (racer.newBestTimer > 0) racer.newBestTimer -= dt;
 
     const def = racer.carDef;
     const topSpeed = BASE_TOP_SPEED * (def.topSpeed / 200);
@@ -1351,8 +1456,22 @@ function updateRacer(racer, dt, difficulty) {
     const prevT = racer.lastTrackT;
     const curT = racer.trackT;
 
+    // Update current lap time
+    racer.currentLapTime = raceTime - racer.lapStartTime;
+
     // Detect crossing start line (t wraps from ~1.0 to ~0.0)
     if (prevT > 0.9 && curT < 0.1) {
+        // Record lap time (skip lap 0 which is the starting partial lap)
+        if (racer.lap > 0 || raceTime > 1) {
+            racer.lastLapTime = raceTime - racer.lapStartTime;
+            if (racer.lastLapTime < racer.bestLapTime) {
+                racer.bestLapTime = racer.lastLapTime;
+                racer.newBestTimer = 3.0;
+            }
+        }
+        racer.lapStartTime = raceTime;
+        racer.currentLapTime = 0;
+
         racer.lap++;
         if (racer.lap >= selectedLaps && !racer.finished) {
             racer.finished = true;
@@ -1668,7 +1787,8 @@ function showResults() {
         const cls = r.isPlayer ? 'result-player' : '';
         const name = r.isPlayer ? 'You' : `AI ${r.carDef.name}`;
         const time = r.finishTime.toFixed(1) + 's';
-        html += `<div class="${cls}">${i+1}${getPositionSuffix(i+1)} - ${name} (${time})</div>`;
+        const bestLap = r.bestLapTime < Infinity ? ' | Best lap: ' + formatLapTime(r.bestLapTime) : '';
+        html += `<div class="${cls}">${i+1}${getPositionSuffix(i+1)} - ${name} (${time}${r.isPlayer ? bestLap : ''})</div>`;
     });
     document.getElementById('resultList').innerHTML = html;
 }
@@ -1703,6 +1823,27 @@ function updateHUD() {
     const dotFwd = Math.sin(player.angle) * tan.x + Math.cos(player.angle) * tan.z;
     const wrongWayEl = document.getElementById('wrongWay');
     wrongWayEl.style.opacity = (dotFwd < -0.3 && player.speed > 5) ? '1' : '0';
+
+    // Lap timer
+    document.getElementById('lapTimer').textContent = formatLapTime(player.currentLapTime);
+
+    // Best lap
+    if (player.bestLapTime < Infinity) {
+        document.getElementById('bestLapTimer').textContent = formatLapTime(player.bestLapTime);
+    } else {
+        document.getElementById('bestLapTimer').textContent = '-:--.---';
+    }
+
+    // New best indicator
+    document.getElementById('newBestLabel').style.opacity = player.newBestTimer > 0 ? '1' : '0';
+}
+
+function formatLapTime(seconds) {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    const wholeSecs = Math.floor(secs);
+    const ms = Math.floor((secs - wholeSecs) * 1000);
+    return mins + ':' + String(wholeSecs).padStart(2, '0') + '.' + String(ms).padStart(3, '0');
 }
 
 // ---- MINIMAP ----
@@ -1816,6 +1957,7 @@ function init() {
     itemBoxMesh = buildItemBoxMesh();
     barrierMesh = buildBarrierMesh();
     treeMesh = buildTreeMesh();
+    finishLineMesh = buildFinishLineMesh(trackPoints);
 
     carMeshes = CAR_DEFS.map(c => buildCarMesh(c.color));
 
@@ -1914,6 +2056,11 @@ function render() {
 
     // Track
     drawMesh(trackMesh, mat4Identity(), vpMat);
+
+    // Finish line
+    gl.disable(gl.CULL_FACE);
+    drawMesh(finishLineMesh, mat4Identity(), vpMat);
+    gl.enable(gl.CULL_FACE);
 
     // Trees
     for (const tree of trees) {
