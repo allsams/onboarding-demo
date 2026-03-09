@@ -376,6 +376,11 @@
         <div class="difficulty-select" id="lapSelect"></div>
     </div>
 
+    <div class="menu-section">
+        <h3>Time of Day</h3>
+        <div class="difficulty-select" id="timeSelect"></div>
+    </div>
+
     <button class="start-btn" id="startBtn">Start Race</button>
 
     <div class="controls-info">
@@ -633,15 +638,36 @@ varying vec3 vWorldPos;
 uniform vec3 uLightDir;
 uniform vec3 uFogColor;
 uniform float uFogDensity;
+uniform int uNightMode;
+uniform vec3 uHeadlightPos;
+uniform vec3 uHeadlightDir;
+uniform float uHeadlightAngle;
 void main() {
     vec3 n = normalize(vNormal);
     float diff = max(dot(n, uLightDir), 0.0);
-    float amb = 0.35;
-    vec3 col = vColor * (amb + diff * 0.65);
+    float amb = uNightMode == 1 ? 0.10 : 0.35;
+    float diffStr = uNightMode == 1 ? 0.25 : 0.65;
+    vec3 col = vColor * (amb + diff * diffStr);
+    // headlights in night mode
+    if (uNightMode == 1) {
+        vec3 toFrag = vWorldPos - uHeadlightPos;
+        float fragDist = length(toFrag);
+        vec3 toFragDir = toFrag / max(fragDist, 0.001);
+        float spotCos = dot(toFragDir, uHeadlightDir);
+        float spotAngle = uHeadlightAngle;
+        if (spotCos > spotAngle && fragDist < 80.0) {
+            float spotFactor = smoothstep(spotAngle, spotAngle + 0.15, spotCos);
+            float atten = 1.0 - smoothstep(0.0, 80.0, fragDist);
+            float nDot = max(dot(n, -toFragDir), 0.0);
+            vec3 headlightColor = vec3(1.0, 0.95, 0.8);
+            col += headlightColor * spotFactor * atten * nDot * 1.5;
+        }
+    }
     // fog
     float dist = length(vWorldPos);
     float fog = 1.0 - exp(-dist * uFogDensity);
-    col = mix(col, uFogColor, clamp(fog, 0.0, 0.7));
+    float maxFog = uNightMode == 1 ? 0.85 : 0.7;
+    col = mix(col, uFogColor, clamp(fog, 0.0, maxFog));
     gl_FragColor = vec4(col, 1.0);
 }`;
 
@@ -682,6 +708,10 @@ function initShaders() {
         uLightDir: gl.getUniformLocation(prog, 'uLightDir'),
         uFogColor: gl.getUniformLocation(prog, 'uFogColor'),
         uFogDensity: gl.getUniformLocation(prog, 'uFogDensity'),
+        uNightMode: gl.getUniformLocation(prog, 'uNightMode'),
+        uHeadlightPos: gl.getUniformLocation(prog, 'uHeadlightPos'),
+        uHeadlightDir: gl.getUniformLocation(prog, 'uHeadlightDir'),
+        uHeadlightAngle: gl.getUniformLocation(prog, 'uHeadlightAngle'),
     };
 
     particleProg = createProgram(gl, VS_PARTICLE, FS_PARTICLE);
@@ -784,7 +814,7 @@ function buildCarMesh(color) {
     return buildMesh(bodyVerts, bodyIndices);
 }
 
-function buildTrackMesh(trackPoints) {
+function buildTrackMesh(trackPoints, isNight) {
     const verts = [];
     const indices = [];
     const ROAD_WIDTH = 18;
@@ -805,9 +835,16 @@ function buildTrackMesh(trackPoints) {
         // Determine stripe coloring
         const stripeT = (t * segments) % 4;
         const isStripe = stripeT < 0.3;
-        const roadR = isStripe ? 0.6 : 0.25;
-        const roadG = isStripe ? 0.6 : 0.25;
-        const roadB = isStripe ? 0.6 : 0.28;
+        let roadR, roadG, roadB;
+        if (isNight) {
+            roadR = isStripe ? 0.35 : 0.12;
+            roadG = isStripe ? 0.35 : 0.12;
+            roadB = isStripe ? 0.4 : 0.14;
+        } else {
+            roadR = isStripe ? 0.6 : 0.25;
+            roadG = isStripe ? 0.6 : 0.25;
+            roadB = isStripe ? 0.6 : 0.28;
+        }
 
         // Left vertex
         verts.push(lx, 0.01, lz, 0, 1, 0, roadR, roadG, roadB);
@@ -828,7 +865,7 @@ function buildTrackMesh(trackPoints) {
         vi += 3;
     }
 
-    // Curbs (red/white stripes on edges)
+    // Curbs (red/white stripes on edges, neon in night mode)
     const CURB_WIDTH = 2;
     let curbVi = vi;
     for (let i = 0; i <= segments; i++) {
@@ -838,9 +875,17 @@ function buildTrackMesh(trackPoints) {
 
         const stripeT = (t * segments * 2) % 2;
         const isRed = stripeT < 1;
-        const cr = isRed ? 0.9 : 0.9;
-        const cg = isRed ? 0.15 : 0.9;
-        const cb = isRed ? 0.15 : 0.9;
+        let cr, cg, cb;
+        if (isNight) {
+            // Neon cyan / magenta curbs
+            cr = isRed ? 1.0 : 0.0;
+            cg = isRed ? 0.0 : 1.0;
+            cb = isRed ? 0.4 : 1.0;
+        } else {
+            cr = isRed ? 0.9 : 0.9;
+            cg = isRed ? 0.15 : 0.9;
+            cb = isRed ? 0.15 : 0.9;
+        }
 
         // Left curb
         const lo = ROAD_WIDTH;
@@ -867,9 +912,9 @@ function buildTrackMesh(trackPoints) {
     return buildMesh(verts, indices);
 }
 
-function buildGroundMesh() {
+function buildGroundMesh(isNight) {
     const S = 1500;
-    const gc = [0.18, 0.35, 0.12]; // grass green
+    const gc = isNight ? [0.04, 0.08, 0.03] : [0.18, 0.35, 0.12]; // dark grass at night
     const verts = [
         -S, 0, -S, 0, 1, 0, gc[0], gc[1], gc[2],
          S, 0, -S, 0, 1, 0, gc[0]*0.9, gc[1]*0.9, gc[2]*0.9,
@@ -880,8 +925,9 @@ function buildGroundMesh() {
     return buildMesh(verts, indices);
 }
 
-function buildItemBoxMesh() {
-    return buildBox(2.5, 2.5, 2.5, [1.0, 0.85, 0.0]);
+function buildItemBoxMesh(isNight) {
+    const color = isNight ? [1.0, 0.95, 0.3] : [1.0, 0.85, 0.0];
+    return buildBox(2.5, 2.5, 2.5, color);
 }
 
 function buildBarrierMesh() {
@@ -1006,6 +1052,7 @@ let gameState = 'menu'; // menu, countdown, racing, finished
 let selectedCar = 0;
 let selectedDifficulty = 1;
 let selectedLaps = 3;
+let nightMode = false;
 
 // Input
 const keys = {};
@@ -1106,6 +1153,22 @@ function initMenu() {
         lapSel.appendChild(div);
     });
 
+    // Time of Day selector
+    const timeSel = document.getElementById('timeSelect');
+    timeSel.innerHTML = '';
+    const timeOptions = [{name: 'Day', value: false}, {name: 'Night', value: true}];
+    timeOptions.forEach((opt) => {
+        const div = document.createElement('div');
+        div.className = 'diff-option' + (nightMode === opt.value ? ' selected' : '');
+        div.textContent = opt.name;
+        div.onclick = () => {
+            nightMode = opt.value;
+            timeSel.querySelectorAll('.diff-option').forEach(e => e.classList.remove('selected'));
+            div.classList.add('selected');
+        };
+        timeSel.appendChild(div);
+    });
+
     document.getElementById('startBtn').onclick = startRace;
     document.getElementById('restartBtn').onclick = () => {
         document.getElementById('results-overlay').style.display = 'none';
@@ -1119,6 +1182,11 @@ function startRace() {
     document.getElementById('hud').style.display = 'block';
     document.getElementById('results-overlay').style.display = 'none';
     document.getElementById('lapTotal').textContent = selectedLaps;
+
+    // Rebuild meshes for current time of day
+    trackMesh = buildTrackMesh(trackPoints, nightMode);
+    groundMesh = buildGroundMesh(nightMode);
+    itemBoxMesh = buildItemBoxMesh(nightMode);
 
     racers = [];
     finishOrder = [];
@@ -1715,8 +1783,8 @@ function drawMinimap() {
     const cx = 80, cy = 80;
 
     // Draw track
-    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
-    ctx.lineWidth = 3;
+    ctx.strokeStyle = nightMode ? 'rgba(0,255,255,0.4)' : 'rgba(255,255,255,0.3)';
+    ctx.lineWidth = nightMode ? 4 : 3;
     ctx.beginPath();
     for (let i = 0; i <= trackPoints.length; i++) {
         const t = i / trackPoints.length;
@@ -1811,9 +1879,9 @@ function init() {
     initParticles();
 
     trackPoints = buildTrack();
-    trackMesh = buildTrackMesh(trackPoints);
-    groundMesh = buildGroundMesh();
-    itemBoxMesh = buildItemBoxMesh();
+    trackMesh = buildTrackMesh(trackPoints, nightMode);
+    groundMesh = buildGroundMesh(nightMode);
+    itemBoxMesh = buildItemBoxMesh(nightMode);
     barrierMesh = buildBarrierMesh();
     treeMesh = buildTreeMesh();
 
@@ -1880,7 +1948,12 @@ function gameLoop(time) {
 }
 
 function render() {
-    gl.clearColor(0.55, 0.75, 0.95, 1);
+    // Sky color
+    if (nightMode) {
+        gl.clearColor(0.02, 0.02, 0.08, 1);
+    } else {
+        gl.clearColor(0.55, 0.75, 0.95, 1);
+    }
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
     const aspect = canvas.width / canvas.height;
@@ -1905,9 +1978,32 @@ function render() {
     const vpMat = mat4Multiply(projMat, viewMat);
 
     gl.useProgram(prog);
-    gl.uniform3f(pLocs.uLightDir, 0.4, 0.8, 0.3);
-    gl.uniform3f(pLocs.uFogColor, 0.55, 0.75, 0.95);
-    gl.uniform1f(pLocs.uFogDensity, 0.0015);
+
+    // Lighting and fog based on time of day
+    if (nightMode) {
+        gl.uniform3f(pLocs.uLightDir, 0.2, 0.6, -0.3); // moonlight from above
+        gl.uniform3f(pLocs.uFogColor, 0.02, 0.02, 0.08);
+        gl.uniform1f(pLocs.uFogDensity, 0.003);
+        gl.uniform1i(pLocs.uNightMode, 1);
+
+        // Player headlight
+        if (racers.length > 0) {
+            const player = racers[0];
+            gl.uniform3f(pLocs.uHeadlightPos, player.x, player.y + 0.5, player.z);
+            const hdx = Math.sin(player.angle);
+            const hdz = Math.cos(player.angle);
+            gl.uniform3f(pLocs.uHeadlightDir, hdx, -0.1, hdz);
+            gl.uniform1f(pLocs.uHeadlightAngle, 0.85); // spotlight cone
+        }
+    } else {
+        gl.uniform3f(pLocs.uLightDir, 0.4, 0.8, 0.3);
+        gl.uniform3f(pLocs.uFogColor, 0.55, 0.75, 0.95);
+        gl.uniform1f(pLocs.uFogDensity, 0.0015);
+        gl.uniform1i(pLocs.uNightMode, 0);
+        gl.uniform3f(pLocs.uHeadlightPos, 0, 0, 0);
+        gl.uniform3f(pLocs.uHeadlightDir, 0, 0, 1);
+        gl.uniform1f(pLocs.uHeadlightAngle, 0.85);
+    }
 
     // Ground
     drawMesh(groundMesh, mat4Identity(), vpMat);
@@ -1942,7 +2038,6 @@ function render() {
             mat4Translate(b.x, 0.05, b.z),
             mat4Scale(b.radius, 0.1, b.radius)
         );
-        // Draw as a dark box
         drawMesh(barrierMesh, model, vpMat);
     }
 
@@ -1961,7 +2056,6 @@ function render() {
         if (r.drifting) {
             const tilt = mat4Identity();
             const tiltAngle = r.driftDir * 0.1;
-            // Simple Z-axis rotation approximation for tilt
             tilt[0] = Math.cos(tiltAngle);
             tilt[1] = Math.sin(tiltAngle);
             tilt[4] = -Math.sin(tiltAngle);
@@ -1978,17 +2072,111 @@ function render() {
                 mat4Translate(r.x, r.y + 1, r.z),
                 mat4Scale(shieldScale, shieldScale, shieldScale)
             );
-            // Draw semi-transparent shield (reuse barrier mesh)
             gl.enable(gl.BLEND);
             gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
             drawMesh(itemBoxMesh, shieldModel, vpMat);
             gl.disable(gl.BLEND);
         }
+
+        // Night mode: headlight glow particles for all cars
+        if (nightMode && !r.finished && Math.abs(r.speed) > 1) {
+            const hlx = r.x + Math.sin(r.angle) * 2.3;
+            const hlz = r.z + Math.cos(r.angle) * 2.3;
+            if (Math.random() < 0.3) {
+                const c = r.carDef.color;
+                spawnParticle(hlx + (Math.random()-0.5)*0.5, 0.5, hlz + (Math.random()-0.5)*0.5,
+                    Math.sin(r.angle)*2, 0.5, Math.cos(r.angle)*2,
+                    1, 0.95, 0.8, 0.2, 1.5);
+            }
+        }
     }
 
     // Particles
     drawParticles(vpMat);
+
+    // Night mode: draw stars on the canvas overlay
+    if (nightMode) {
+        drawStars();
+    }
 }
+
+// ---- STARS (Night Mode) ----
+let starPositions = null;
+function generateStars() {
+    starPositions = [];
+    for (let i = 0; i < 200; i++) {
+        starPositions.push({
+            x: Math.random(),
+            y: Math.random() * 0.5, // upper half of screen
+            size: 0.5 + Math.random() * 1.5,
+            brightness: 0.5 + Math.random() * 0.5,
+            twinkleSpeed: 1 + Math.random() * 3,
+        });
+    }
+}
+
+function drawStars() {
+    if (!starPositions) generateStars();
+    // Use a 2D canvas overlay approach: draw directly on the WebGL canvas using a tiny overlay
+    // We'll use gl points for stars
+    if (!starVBO) {
+        starVBO = gl.createBuffer();
+        starProg = createProgram(gl, `
+            attribute vec2 aPos;
+            attribute float aSize;
+            attribute float aBright;
+            void main() {
+                gl_Position = vec4(aPos * 2.0 - 1.0, 0.999, 1.0);
+                gl_PointSize = aSize;
+            }
+        `, `
+            precision mediump float;
+            uniform float uTime;
+            varying float vBright;
+            void main() {
+                vec2 c = gl_PointCoord - 0.5;
+                float r = dot(c, c);
+                if (r > 0.25) discard;
+                float alpha = (1.0 - r * 4.0) * 0.8;
+                gl_FragColor = vec4(0.9, 0.92, 1.0, alpha);
+            }
+        `);
+        starAPos = gl.getAttribLocation(starProg, 'aPos');
+        starASize = gl.getAttribLocation(starProg, 'aSize');
+    }
+
+    const data = new Float32Array(starPositions.length * 3);
+    for (let i = 0; i < starPositions.length; i++) {
+        const s = starPositions[i];
+        const twinkle = 0.6 + 0.4 * Math.sin(lastTime * 0.001 * s.twinkleSpeed + i);
+        data[i*3] = s.x;
+        data[i*3+1] = 1.0 - s.y; // flip Y so stars are at top
+        data[i*3+2] = s.size * twinkle;
+    }
+
+    gl.useProgram(starProg);
+    gl.bindBuffer(gl.ARRAY_BUFFER, starVBO);
+    gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
+    gl.enableVertexAttribArray(starAPos);
+    gl.vertexAttribPointer(starAPos, 2, gl.FLOAT, false, 12, 0);
+    gl.enableVertexAttribArray(starASize);
+    gl.vertexAttribPointer(starASize, 1, gl.FLOAT, false, 12, 8);
+
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+    gl.depthMask(false);
+    gl.disable(gl.DEPTH_TEST);
+    gl.drawArrays(gl.POINTS, 0, starPositions.length);
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthMask(true);
+    gl.disable(gl.BLEND);
+
+    gl.useProgram(prog);
+}
+
+let starVBO = null;
+let starProg = null;
+let starAPos, starASize;
 
 init();
 </script>
