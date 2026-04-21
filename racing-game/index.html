@@ -1062,14 +1062,16 @@ let camSmoothTX = 0, camSmoothTY = 0, camSmoothTZ = 0;
 // ---- INIT MENU ----
 function initMenu() {
     const carSel = document.getElementById('carSelect');
-    carSel.innerHTML = '';
+    carSel.replaceChildren();
     CAR_DEFS.forEach((c, i) => {
         const div = document.createElement('div');
         div.className = 'car-option' + (i === selectedCar ? ' selected' : '');
-        div.innerHTML = `<div class="car-emoji">${c.emoji}</div><div class="car-name">${c.name}</div>
-            <div class="car-stat">Speed: ${'★'.repeat(Math.round(c.topSpeed/50))}</div>
-            <div class="car-stat">Handling: ${'★'.repeat(Math.round(c.handling*5))}</div>
-            <div class="car-stat">Drift: ${'★'.repeat(Math.round(c.driftFactor*5))}</div>`;
+        const makeChild = (cls, text) => { const d = document.createElement('div'); d.className = cls; d.textContent = text; return d; };
+        div.appendChild(makeChild('car-emoji', c.emoji));
+        div.appendChild(makeChild('car-name', c.name));
+        div.appendChild(makeChild('car-stat', 'Speed: ' + '★'.repeat(Math.round(c.topSpeed / 50))));
+        div.appendChild(makeChild('car-stat', 'Handling: ' + '★'.repeat(Math.round(c.handling * 5))));
+        div.appendChild(makeChild('car-stat', 'Drift: ' + '★'.repeat(Math.round(c.driftFactor * 5))));
         div.onclick = () => {
             selectedCar = i;
             document.querySelectorAll('.car-option').forEach(e => e.classList.remove('selected'));
@@ -1079,7 +1081,7 @@ function initMenu() {
     });
 
     const diffSel = document.getElementById('diffSelect');
-    diffSel.innerHTML = '';
+    diffSel.replaceChildren();
     DIFFICULTIES.forEach((d, i) => {
         const div = document.createElement('div');
         div.className = 'diff-option' + (i === selectedDifficulty ? ' selected' : '');
@@ -1093,7 +1095,7 @@ function initMenu() {
     });
 
     const lapSel = document.getElementById('lapSelect');
-    lapSel.innerHTML = '';
+    lapSel.replaceChildren();
     LAP_OPTIONS.forEach((l, i) => {
         const div = document.createElement('div');
         div.className = 'diff-option' + (l === selectedLaps ? ' selected' : '');
@@ -1663,14 +1665,16 @@ function showResults() {
     document.getElementById('resultsTitle').textContent =
         playerPos === 1 ? 'Victory!' : playerPos <= 3 ? 'Podium Finish!' : 'Race Complete!';
 
-    let html = '';
+    const resultList = document.getElementById('resultList');
+    resultList.replaceChildren();
     finishOrder.forEach((r, i) => {
-        const cls = r.isPlayer ? 'result-player' : '';
-        const name = r.isPlayer ? 'You' : `AI ${r.carDef.name}`;
+        const row = document.createElement('div');
+        if (r.isPlayer) row.className = 'result-player';
+        const name = r.isPlayer ? 'You' : 'AI ' + r.carDef.name;
         const time = r.finishTime.toFixed(1) + 's';
-        html += `<div class="${cls}">${i+1}${getPositionSuffix(i+1)} - ${name} (${time})</div>`;
+        row.textContent = (i + 1) + getPositionSuffix(i + 1) + ' - ' + name + ' (' + time + ')';
+        resultList.appendChild(row);
     });
-    document.getElementById('resultList').innerHTML = html;
 }
 
 function updateHUD() {
