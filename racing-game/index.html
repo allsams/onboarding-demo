@@ -462,6 +462,7 @@ function getTrackTangent(points, t) {
     const dx = p1.x - p0.x;
     const dz = p1.z - p0.z;
     const len = Math.sqrt(dx * dx + dz * dz);
+    if (len === 0) return { x: 0, z: 1 };
     return { x: dx / len, z: dz / len };
 }
 
@@ -506,12 +507,15 @@ function closestTrackT(points, px, pz) {
 // ---- GL HELPERS ----
 function createShader(gl, type, src) {
     const s = gl.createShader(type);
+    if (!s) {
+        throw new Error(`Failed to create ${type === gl.VERTEX_SHADER ? 'vertex' : 'fragment'} shader`);
+    }
     gl.shaderSource(s, src);
     gl.compileShader(s);
     if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
-        console.error(gl.getShaderInfoLog(s));
+        const info = gl.getShaderInfoLog(s);
         gl.deleteShader(s);
-        return null;
+        throw new Error(`Shader compilation failed: ${info}`);
     }
     return s;
 }
@@ -520,12 +524,16 @@ function createProgram(gl, vsSrc, fsSrc) {
     const vs = createShader(gl, gl.VERTEX_SHADER, vsSrc);
     const fs = createShader(gl, gl.FRAGMENT_SHADER, fsSrc);
     const prog = gl.createProgram();
+    if (!prog) {
+        throw new Error('Failed to create WebGL program');
+    }
     gl.attachShader(prog, vs);
     gl.attachShader(prog, fs);
     gl.linkProgram(prog);
     if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
-        console.error(gl.getProgramInfoLog(prog));
-        return null;
+        const info = gl.getProgramInfoLog(prog);
+        gl.deleteProgram(prog);
+        throw new Error(`Program linking failed: ${info}`);
     }
     return prog;
 }
@@ -607,6 +615,10 @@ function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 // ---- MAIN GAME ----
 const canvas = document.getElementById('gameCanvas');
 const gl = canvas.getContext('webgl', { antialias: true, alpha: false });
+if (!gl) {
+    document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#fff;font-size:24px;text-align:center;padding:20px;">WebGL is not supported by your browser. Please use a modern browser with WebGL enabled.</div>';
+    throw new Error('WebGL not supported');
+}
 
 // Shaders
 const VS_BASIC = `
@@ -1659,6 +1671,7 @@ function showResults() {
     overlay.style.display = 'flex';
 
     const playerRacer = racers.find(r => r.isPlayer);
+    if (!playerRacer) return;
     const playerPos = finishOrder.indexOf(playerRacer) + 1;
     document.getElementById('resultsTitle').textContent =
         playerPos === 1 ? 'Victory!' : playerPos <= 3 ? 'Podium Finish!' : 'Race Complete!';
@@ -1709,6 +1722,7 @@ function updateHUD() {
 function drawMinimap() {
     const mc = document.getElementById('minimapCanvas');
     const ctx = mc.getContext('2d');
+    if (!ctx) return;
     ctx.clearRect(0, 0, 160, 160);
 
     const scale = 0.2;
@@ -1807,7 +1821,12 @@ function init() {
     resize();
     window.addEventListener('resize', resize);
 
-    initShaders();
+    try {
+        initShaders();
+    } catch (e) {
+        document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#fff;font-size:24px;text-align:center;padding:20px;">Failed to initialize graphics: ' + e.message + '</div>';
+        throw e;
+    }
     initParticles();
 
     trackPoints = buildTrack();
@@ -1950,6 +1969,7 @@ function render() {
     for (let i = 0; i < racers.length; i++) {
         const r = racers[i];
         const carIdx = CAR_DEFS.indexOf(r.carDef);
+        if (carIdx < 0) continue;
         const mesh = carMeshes[carIdx];
 
         let model = mat4Multiply(
