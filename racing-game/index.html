@@ -394,8 +394,29 @@
 // ============================================================
 // DRIFT KINGS - WebGL Car Racing Game
 // ============================================================
+// A single-file WebGL racing game with AI opponents, drifting
+// mechanics, power-up items, and a procedurally generated oval
+// track. The architecture is split into these major sections:
+//   1. Configuration – car stats, difficulty presets, items
+//   2. Track Definition – procedural waypoint-based circuit
+//   3. WebGL Helpers – shader compilation, math utilities
+//   4. Geometry Builders – mesh generation for cars, track, scenery
+//   5. Input Handling – keyboard state map for player controls
+//   6. Game State & Race Init – racer construction, starting grid
+//   7. Physics & Movement – acceleration, friction, drift, laps
+//   8. AI System – look-ahead steering and difficulty scaling
+//   9. Items & Collisions – power-ups, racer-to-racer collisions
+//  10. Camera – smooth third-person chase camera
+//  11. HUD & Minimap – DOM-based heads-up display
+//  12. Main Game Loop – timestep, state machine, render dispatch
+//  13. Rendering – WebGL draw calls for every visual element
+// ============================================================
 
 // ---- CONFIGURATION ----
+// Each car definition provides base stats that scale the shared
+// physics constants (BASE_TOP_SPEED, BASE_ACCEL, TURN_SPEED).
+// "driftFactor" amplifies turn-rate while drifting; "weight"
+// influences collision momentum transfer between racers.
 const CAR_DEFS = [
     { name: 'Speedster', emoji: '\u{1F3CE}', color: [1, 0.3, 0.3], topSpeed: 220, accel: 1.0, handling: 0.7, driftFactor: 0.8, weight: 0.8, desc: 'Fast top speed, light' },
     { name: 'Handler', emoji: '\u{1F699}', color: [0.3, 0.6, 1], topSpeed: 190, accel: 0.85, handling: 1.0, driftFactor: 1.0, weight: 0.9, desc: 'Great handling & drift' },
@@ -403,6 +424,9 @@ const CAR_DEFS = [
     { name: 'Balanced', emoji: '\u{1F697}', color: [1, 0.85, 0.2], topSpeed: 200, accel: 0.9, handling: 0.85, driftFactor: 0.9, weight: 1.0, desc: 'Well-rounded racer' },
 ];
 
+// Difficulty presets control AI behaviour: speed multiplier
+// on throttle, handling precision, and how aggressively
+// opponents attempt to block/overtake.
 const DIFFICULTIES = [
     { name: 'Easy', aiSpeed: 0.75, aiHandling: 0.75, aiAggression: 0.3 },
     { name: 'Medium', aiSpeed: 0.88, aiHandling: 0.85, aiAggression: 0.6 },
@@ -412,6 +436,9 @@ const DIFFICULTIES = [
 
 const LAP_OPTIONS = [2, 3, 5];
 
+// Power-up items collected from item boxes on the track.
+// Duration-based items (Boost, Shield) apply a timed buff;
+// instant items (Missile, Oil Slick, Lightning) trigger immediately.
 const ITEMS = [
     { name: 'Boost', emoji: '\u{1F680}', duration: 2.0 },
     { name: 'Missile', emoji: '\u{1F4A5}', duration: 0 },
@@ -425,7 +452,9 @@ const TOTAL_RACERS = NUM_AI + 1;
 const ITEM_BOX_COUNT = 8;
 
 // ---- TRACK DEFINITION ----
-// Track is a closed loop defined by waypoints. We'll build a smooth oval-ish circuit.
+// The track is a closed loop of waypoints forming an elongated
+// oval with two gentle chicanes. Cars are positioned and scored
+// by their parametric position "t" (0..1) along this loop.
 function buildTrack() {
     const points = [];
     const segments = 120;
@@ -443,6 +472,8 @@ function buildTrack() {
     return points;
 }
 
+// Interpolates between waypoints to get a smooth world-space
+// position for any parametric value t ∈ [0, 1).
 function getTrackPoint(points, t) {
     const len = points.length;
     const idx = ((t % 1) + 1) % 1 * len;
@@ -455,6 +486,8 @@ function getTrackPoint(points, t) {
     };
 }
 
+// Returns the unit-length forward direction at parameter t,
+// computed via finite differences (small dt offset).
 function getTrackTangent(points, t) {
     const dt = 0.001;
     const p0 = getTrackPoint(points, t);
@@ -465,11 +498,18 @@ function getTrackTangent(points, t) {
     return { x: dx / len, z: dz / len };
 }
 
+// Perpendicular (left-pointing) vector to the track at t.
+// Used for lane offsets, curb placement, and off-road checks.
 function getTrackNormal(points, t) {
     const tan = getTrackTangent(points, t);
     return { x: -tan.z, z: tan.x };
 }
 
+// Brute-force scan + binary-search refinement to find the
+// closest parametric t on the track to a given world position.
+// Returns { t, dist } where dist is the perpendicular distance
+// from the track centre-line – used for off-road detection and
+// lap progress tracking.
 function closestTrackT(points, px, pz) {
     let bestT = 0;
     let bestDist = Infinity;
@@ -504,6 +544,8 @@ function closestTrackT(points, px, pz) {
 }
 
 // ---- GL HELPERS ----
+// Thin wrappers around raw WebGL calls for compiling shaders
+// and linking them into a program. Errors are logged to console.
 function createShader(gl, type, src) {
     const s = gl.createShader(type);
     gl.shaderSource(s, src);
@@ -531,6 +573,10 @@ function createProgram(gl, vsSrc, fsSrc) {
 }
 
 // ---- MATH HELPERS ----
+// Hand-rolled 4×4 matrix math (no external library) providing
+// perspective projection, look-at view, and model transforms
+// (translate, rotate-Y, scale). All matrices are column-major
+// Float32Arrays matching WebGL's uniformMatrix4fv layout.
 function mat4Perspective(fovy, aspect, near, far) {
     const f = 1.0 / Math.tan(fovy / 2);
     const nf = 1 / (near - far);
@@ -694,6 +740,10 @@ function initShaders() {
 }
 
 // ---- GEOMETRY BUILDERS ----
+// Each builder generates a vertex buffer (pos + normal + color,
+// 9 floats/vertex) and an index buffer, uploaded to the GPU once.
+// The resulting mesh object { vbo, ibo, count } is drawn later
+// via drawMesh().
 function buildMesh(verts, indices) {
     const vbo = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
@@ -735,8 +785,11 @@ function buildBox(w, h, d, color) {
     return buildMesh(verts, indices);
 }
 
+// Assembles a car mesh from multiple axis-aligned boxes:
+// main body, cabin, windshield, four wheels, headlights, and
+// tail lights. The car's colour is passed in and applied to
+// the body; other parts use fixed or derived colours.
 function buildCarMesh(color) {
-    // Build a simple car: body + cabin + wheels represented as boxes
     const parts = [];
     // Body
     const r = color[0], g = color[1], b = color[2];
@@ -784,6 +837,10 @@ function buildCarMesh(color) {
     return buildMesh(bodyVerts, bodyIndices);
 }
 
+// Generates the road surface and coloured curbs as a single
+// mesh. For each track segment, three vertices (left, centre,
+// right) form the road, with alternating stripe colours.
+// Red/white curbs are extruded along both edges.
 function buildTrackMesh(trackPoints) {
     const verts = [];
     const indices = [];
@@ -919,6 +976,10 @@ function buildTreeMesh() {
 }
 
 // ---- DRAW HELPERS ----
+// Binds a mesh's VBO/IBO, sets vertex attribute pointers for
+// the basic shader (pos, normal, color at stride=36 bytes),
+// uploads the model-view-projection matrix, and issues the
+// drawElements call.
 function drawMesh(mesh, modelMat, vpMat) {
     const mvp = mat4Multiply(vpMat, modelMat);
     gl.uniformMatrix4fv(pLocs.uMVP, false, mvp);
@@ -936,6 +997,11 @@ function drawMesh(mesh, modelMat, vpMat) {
 }
 
 // ---- PARTICLES ----
+// A simple CPU-side particle system. Particles are spawned by
+// gameplay events (drift sparks, boost flames, collisions, item
+// effects) and updated each frame with velocity + gravity.
+// They are rendered as point-sprites using a separate additive-
+// blend shader (VS_PARTICLE / FS_PARTICLE).
 const MAX_PARTICLES = 500;
 let particles = [];
 
@@ -996,6 +1062,10 @@ function drawParticles(vpMat) {
 }
 
 // ---- GAME STATE ----
+// Global mutable state for the current race. The game
+// transitions through four states: menu → countdown → racing →
+// finished. Racers, item boxes, trees, and barriers are
+// recreated each time startRace() is called.
 let trackPoints;
 let trackMesh, groundMesh, carMeshes, itemBoxMesh, barrierMesh, treeMesh;
 let itemBoxes = [];
@@ -1007,12 +1077,21 @@ let selectedCar = 0;
 let selectedDifficulty = 1;
 let selectedLaps = 3;
 
-// Input
+// ---- INPUT HANDLING ----
+// A flat object maps KeyboardEvent.code strings to booleans.
+// The player's controls are read from this map each frame in
+// updateRacer(). Arrow keys / WASD → throttle & steering,
+// Shift → drift, Space → use item. The Space key is consumed
+// (set to false) on use so items aren't activated repeatedly.
 const keys = {};
 window.addEventListener('keydown', e => { keys[e.code] = true; });
 window.addEventListener('keyup', e => { keys[e.code] = false; });
 
-// Car state
+// ---- RACER CONSTRUCTION ----
+// Creates a racer object with position, speed, drift state,
+// lap tracking, item slot, and AI-specific fields. startT is
+// the parametric position on the track; laneOffset shifts the
+// car perpendicular to the track centre-line for grid placement.
 function createRacer(carDef, isPlayer, startT, laneOffset) {
     const p = getTrackPoint(trackPoints, startT);
     const tan = getTrackTangent(trackPoints, startT);
@@ -1060,6 +1139,9 @@ let camSmoothX = 0, camSmoothY = 20, camSmoothZ = 0;
 let camSmoothTX = 0, camSmoothTY = 0, camSmoothTZ = 0;
 
 // ---- INIT MENU ----
+// Dynamically populates the car-select, difficulty, and lap
+// options in the DOM. Click handlers toggle the "selected"
+// class and update the corresponding global variable.
 function initMenu() {
     const carSel = document.getElementById('carSelect');
     carSel.innerHTML = '';
@@ -1114,6 +1196,10 @@ function initMenu() {
 }
 
 // ---- INIT RACE ----
+// Hides the menu overlay, resets all race state, and places
+// the player + AI racers on a staggered starting grid just
+// past the finish line. Item boxes are distributed evenly
+// around the track with a random lateral offset.
 function startRace() {
     document.getElementById('menu').style.display = 'none';
     document.getElementById('hud').style.display = 'block';
@@ -1169,6 +1255,11 @@ function startRace() {
 }
 
 // ---- PHYSICS ----
+// Core movement constants. Each racer's effective values are
+// derived by multiplying these by the car's stat ratios.
+// The physics model is arcade-style: no tyre simulation,
+// but drift mechanics reward timed Shift-holds with speed
+// boosts proportional to charge duration.
 const BASE_TOP_SPEED = 120;
 const BASE_ACCEL = 80;
 const BRAKE_FORCE = 120;
@@ -1186,6 +1277,16 @@ const BOOST_SPEED_MULT = 1.6;
 const COLLISION_RADIUS = 2.5;
 const ITEM_PICKUP_RADIUS = 4;
 
+// Per-frame update for a single racer. Steps:
+//   1. Tick down status-effect timers (shield, boost, spin, slow)
+//   2. Read input (player keyboard or AI steering result)
+//   3. Compute effective top speed (boost / slow / off-road)
+//   4. Apply acceleration, friction, and speed clamping
+//   5. Handle drift: charge → release → boost reward
+//   6. Move the racer along its heading + lateral drift offset
+//   7. Spawn visual particles (drift sparks, dirt, exhaust)
+//   8. Respawn on track if too far off-road
+//   9. Track lap progress by detecting t-parameter wrap-around
 function updateRacer(racer, dt, difficulty) {
     if (racer.finished) return;
 
@@ -1212,6 +1313,10 @@ function updateRacer(racer, dt, difficulty) {
     let wantDrift = false;
     let useItem = false;
 
+    // --- Player input: read current keyboard state ---
+    // Throttle is +1 (forward) or -0.5 (brake/reverse).
+    // Steering is ±1 (left/right). Drift requires Shift held
+    // while turning at speed. Space activates the held item.
     if (racer.isPlayer) {
         if (keys['ArrowUp'] || keys['KeyW']) throttle = 1;
         if (keys['ArrowDown'] || keys['KeyS']) throttle = -0.5;
@@ -1219,7 +1324,7 @@ function updateRacer(racer, dt, difficulty) {
         if (keys['ArrowRight'] || keys['KeyD']) steer = -1;
         wantDrift = keys['ShiftLeft'] || keys['ShiftRight'];
         useItem = keys['Space'];
-        if (useItem) keys['Space'] = false; // consume
+        if (useItem) keys['Space'] = false; // consume so item fires once
     } else {
         // AI
         const aiResult = updateAI(racer, dt, difficulty);
@@ -1229,7 +1334,9 @@ function updateRacer(racer, dt, difficulty) {
         useItem = aiResult.useItem;
     }
 
-    // Speed
+    // --- Speed calculation ---
+    // The effective top speed is the car's base top speed modified
+    // by any active boost, slow debuff, or off-road penalty.
     let effectiveTopSpeed = topSpeed;
     if (racer.boostTimer > 0) effectiveTopSpeed *= BOOST_SPEED_MULT;
     if (racer.slowTimer > 0) effectiveTopSpeed *= 0.5;
@@ -1249,11 +1356,18 @@ function updateRacer(racer, dt, difficulty) {
     racer.speed *= (1.0 - FRICTION_PER_SEC * dt);
     racer.speed = clamp(racer.speed, -20, effectiveTopSpeed);
 
-    // Steering
+    // --- Steering ---
+    // Turn rate scales with speed: slower speeds yield less
+    // responsive turning (prevents spinning on the spot).
     const speedFactor = clamp(Math.abs(racer.speed) / 30, 0.3, 1);
     let turnRate = handling * speedFactor;
 
-    // Drift
+    // --- Drift mechanic ---
+    // Drift activates when holding Shift while turning at speed.
+    // While drifting: turn rate is amplified, a lateral slide is
+    // applied, and driftCharge accumulates. On release, charge
+    // level determines a speed-boost reward (small / big / mega).
+    // Colour-coded particles indicate the current charge tier.
     if (wantDrift && Math.abs(racer.speed) > 20 && Math.abs(steer) > 0.1) {
         if (!racer.drifting) {
             racer.drifting = true;
@@ -1347,7 +1461,12 @@ function updateRacer(racer, dt, difficulty) {
         activateItem(racer);
     }
 
-    // Lap tracking
+    // --- Lap tracking ---
+    // Lap completion is detected when the parametric track
+    // position wraps from high (~0.9+) to low (~<0.1), meaning
+    // the racer crossed the start/finish line going forward.
+    // The reverse wrap (low→high) detects wrong-way travel and
+    // decrements the lap counter to prevent cheating.
     const prevT = racer.lastTrackT;
     const curT = racer.trackT;
 
@@ -1375,6 +1494,18 @@ function updateRacer(racer, dt, difficulty) {
 }
 
 // ---- AI SYSTEM ----
+// AI racers use a simple look-ahead approach:
+//   1. Project a target point ahead on the track (further at
+//      higher speeds) and steer toward it.
+//   2. Add random noise scaled inversely with difficulty for a
+//      more natural, imperfect driving line.
+//   3. If drifting far off-road, override with aggressive
+//      steering back toward the nearest track point.
+//   4. Trigger drifts on sharp turns when difficulty allows.
+//   5. Use held items on a random cooldown timer.
+//   6. Avoid nearby racers by nudging the steering away.
+// The difficulty preset scales AI throttle (speed), handling
+// precision, and collision-avoidance aggression.
 function updateAI(racer, dt, difficulty) {
     const diff = DIFFICULTIES[difficulty];
     let throttle = 1.0;
@@ -1456,6 +1587,10 @@ function updateAI(racer, dt, difficulty) {
 }
 
 // ---- ITEMS ----
+// Item pickup is position-weighted: racers further behind get
+// stronger items (similar to rubber-banding in kart racers).
+// The weight arrays bias toward Boost for leaders and toward
+// Missile/Lightning for trailing positions.
 function pickupItem(racer) {
     if (racer.item !== null) return;
     // Weight items by position (worse position = better items)
@@ -1473,6 +1608,13 @@ function pickupItem(racer) {
     racer.item = ITEMS[0];
 }
 
+// Activates the racer's held item and clears the item slot.
+// Effects:
+//   Boost     – temporary speed multiplier
+//   Missile   – hits the nearest racer ahead, causing a spin
+//   Shield    – temporary immunity to Missile / Oil / Lightning
+//   Oil Slick – drops a hazard behind the car that spins victims
+//   Lightning – slows every racer ahead of the user
 function activateItem(racer) {
     const item = racer.item;
     racer.item = null;
@@ -1552,6 +1694,12 @@ function activateItem(racer) {
 }
 
 // ---- COLLISIONS ----
+// Runs every frame during the racing state. Three collision
+// passes are performed:
+//   1. Racer-vs-racer: overlap resolution with mass-weighted
+//      push-back and momentum transfer, plus spark particles.
+//   2. Racer-vs-item-box: proximity pickup with cooldown respawn.
+//   3. Racer-vs-oil-slick: timed hazards that cause spins.
 function handleCollisions() {
     for (let i = 0; i < racers.length; i++) {
         for (let j = i + 1; j < racers.length; j++) {
@@ -1626,6 +1774,8 @@ function handleCollisions() {
 }
 
 // ---- RACE POSITION ----
+// Position is computed by comparing total progress (lap + trackT)
+// across all racers. Higher progress = better position.
 function getRacerPosition(racer) {
     let pos = 1;
     const myProgress = racer.lap + racer.trackT;
@@ -1645,6 +1795,10 @@ function getPositionSuffix(pos) {
 }
 
 // ---- UI ----
+// HUD update and race result display. The HUD is pure DOM (not
+// WebGL) overlaid on the canvas. updateHUD() runs each frame to
+// sync speed, position, lap, item, drift bar, and wrong-way
+// indicator with the player's racer state.
 function showRaceMessage(text) {
     const el = document.getElementById('raceMessage');
     el.textContent = text;
@@ -1706,6 +1860,9 @@ function updateHUD() {
 }
 
 // ---- MINIMAP ----
+// Renders a 2D top-down view of the track and all racer
+// positions onto a small <canvas> element. The player dot is
+// highlighted in gold; AI dots use each car's configured colour.
 function drawMinimap() {
     const mc = document.getElementById('minimapCanvas');
     const ctx = mc.getContext('2d');
@@ -1741,6 +1898,11 @@ function drawMinimap() {
 }
 
 // ---- CAMERA ----
+// Third-person chase camera. Each frame, it computes a target
+// position behind and above the player car and a look-at point
+// slightly ahead. Both are smoothly interpolated (lerp) to avoid
+// jarring snaps. During a boost, the camera pulls back and
+// rises for a dramatic zoom-out effect.
 function updateCamera(dt) {
     const player = racers[0];
     const behindDist = 14;
@@ -1776,6 +1938,10 @@ function updateCamera(dt) {
 }
 
 // ---- SCENERY ----
+// Populates decorative trees around the track. Each tree is
+// placed at a random track parameter with a lateral offset
+// guaranteed to be outside the road surface (30–110 units from
+// centre-line) so they don't obstruct racing.
 function generateScenery() {
     trees = [];
     // Place trees around the track but not on it
@@ -1794,15 +1960,30 @@ function generateScenery() {
     }
 }
 
-// ---- MAIN LOOP ----
+// ---- MAIN GAME LOOP ----
+// Uses requestAnimationFrame for v-synced updates. The loop is
+// a classic "variable timestep" design: dt is clamped to 50 ms
+// to prevent physics explosions after tab-backgrounding.
+// The loop acts as a state machine:
+//   • countdown – decrement timer, show 3-2-1-GO overlay
+//   • racing    – update all racers, collisions, items, HUD
+//   • menu/finished – camera orbits, no physics
+// After state-specific logic, the camera, particles, and full
+// scene are rendered every frame regardless of state.
 let lastTime = 0;
 
+// Keeps the WebGL canvas sized to the window, accounting for
+// devicePixelRatio so the game stays sharp on high-DPI screens.
 function resize() {
     canvas.width = window.innerWidth * window.devicePixelRatio;
     canvas.height = window.innerHeight * window.devicePixelRatio;
     gl.viewport(0, 0, canvas.width, canvas.height);
 }
 
+// One-time initialisation: compile shaders, generate all static
+// geometry (track, ground, trees, car meshes), populate the menu,
+// and enable depth testing + back-face culling before entering
+// the game loop.
 function init() {
     resize();
     window.addEventListener('resize', resize);
@@ -1830,9 +2011,14 @@ function init() {
 }
 
 function gameLoop(time) {
+    // Compute delta-time in seconds; cap at 50 ms to keep
+    // physics stable if the browser throttles the tab.
     const dt = Math.min((time - lastTime) / 1000, 0.05);
     lastTime = time;
 
+    // --- State: COUNTDOWN ---
+    // Show a 3-2-1-GO sequence. No racer movement until the
+    // timer reaches zero, at which point state flips to "racing".
     if (gameState === 'countdown') {
         countdownTimer -= dt;
         const el = document.getElementById('countdown');
@@ -1848,6 +2034,10 @@ function gameLoop(time) {
         }
     }
 
+    // --- State: RACING ---
+    // The core simulation tick: advance the race clock, update
+    // every racer (player physics + AI), resolve all collisions,
+    // and respawn collected item boxes after their cooldown.
     if (gameState === 'racing') {
         raceTime += dt;
         for (const racer of racers) {
@@ -1855,7 +2045,7 @@ function gameLoop(time) {
         }
         handleCollisions();
 
-        // Update item boxes
+        // Tick item-box respawn timers and spin their models
         for (const box of itemBoxes) {
             if (!box.active) {
                 box.respawnTimer -= dt;
@@ -1865,6 +2055,8 @@ function gameLoop(time) {
         }
     }
 
+    // Camera, particles, and HUD update run every frame
+    // regardless of game state so the scene stays alive.
     if (racers.length > 0) {
         updateCamera(dt);
     }
@@ -1875,20 +2067,39 @@ function gameLoop(time) {
         drawMinimap();
     }
 
+    // Issue the WebGL draw calls and schedule the next frame.
     render();
     requestAnimationFrame(gameLoop);
 }
 
+// ---- RENDERING ----
+// Clears the framebuffer, builds the view-projection matrix,
+// then draws every visual element in painter's-algorithm order:
+//   1. Sky-coloured clear  (acts as background)
+//   2. Ground plane
+//   3. Track surface + curbs
+//   4. Scenery (trees)
+//   5. Item boxes (with bobbing animation)
+//   6. Oil-slick hazards
+//   7. Cars (with drift tilt and optional shield overlay)
+//   8. Particles (additive-blended point sprites)
+// All opaque geometry uses the basic diffuse + fog shader.
+// The menu/finished states use a slow-orbiting camera; during
+// racing the smoothed chase-camera matrices are used instead.
 function render() {
+    // Clear to sky blue
     gl.clearColor(0.55, 0.75, 0.95, 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
+    // Build projection matrix (45° FOV, near=0.5, far=1500)
     const aspect = canvas.width / canvas.height;
     const projMat = mat4Perspective(Math.PI / 4, aspect, 0.5, 1500);
 
+    // Choose view matrix based on game state:
+    //   menu/finished → slow orbit around the track centre
+    //   racing/countdown → chase camera behind the player car
     let viewMat;
     if (gameState === 'menu' || gameState === 'finished') {
-        // Orbiting camera for menu
         const t = lastTime * 0.0003;
         const r = 250;
         const ex = Math.cos(t) * r;
@@ -1902,20 +2113,22 @@ function render() {
         );
     }
 
+    // Combined view-projection used for all draw calls
     const vpMat = mat4Multiply(projMat, viewMat);
 
+    // Activate the basic shader and set global lighting/fog uniforms
     gl.useProgram(prog);
     gl.uniform3f(pLocs.uLightDir, 0.4, 0.8, 0.3);
     gl.uniform3f(pLocs.uFogColor, 0.55, 0.75, 0.95);
     gl.uniform1f(pLocs.uFogDensity, 0.0015);
 
-    // Ground
+    // Draw ground plane (large green quad at y=0)
     drawMesh(groundMesh, mat4Identity(), vpMat);
 
-    // Track
+    // Draw track road surface and curbs
     drawMesh(trackMesh, mat4Identity(), vpMat);
 
-    // Trees
+    // Draw scenery trees with per-instance transform
     for (const tree of trees) {
         const model = mat4Multiply(
             mat4Multiply(mat4Translate(tree.x, 0, tree.z), mat4RotateY(tree.rotation)),
@@ -1924,7 +2137,7 @@ function render() {
         drawMesh(treeMesh, model, vpMat);
     }
 
-    // Item boxes
+    // Draw active item boxes with a sine-wave vertical bob
     for (const box of itemBoxes) {
         if (!box.active) continue;
         const bobY = Math.sin(lastTime * 0.003 + box.x) * 0.5 + 2;
@@ -1935,7 +2148,7 @@ function render() {
         drawMesh(itemBoxMesh, model, vpMat);
     }
 
-    // Oil slicks (drawn as flat dark patches)
+    // Draw oil-slick hazards as flat, dark scaled cubes
     for (const b of barriers) {
         if (b.type !== 'oil') continue;
         const model = mat4Multiply(
@@ -1946,7 +2159,9 @@ function render() {
         drawMesh(barrierMesh, model, vpMat);
     }
 
-    // Cars
+    // Draw each racer's car mesh, applying a slight roll tilt
+    // when drifting and rendering a translucent shield sphere
+    // around shielded racers using alpha blending.
     for (let i = 0; i < racers.length; i++) {
         const r = racers[i];
         const carIdx = CAR_DEFS.indexOf(r.carDef);
@@ -1986,10 +2201,11 @@ function render() {
         }
     }
 
-    // Particles
+    // Finally, draw all active particles (additive blending)
     drawParticles(vpMat);
 }
 
+// Kick off the game: initialise everything and start the loop.
 init();
 </script>
 </body>
