@@ -462,6 +462,9 @@ function getTrackTangent(points, t) {
     const dx = p1.x - p0.x;
     const dz = p1.z - p0.z;
     const len = Math.sqrt(dx * dx + dz * dz);
+    if (len < 1e-10) {
+        return { x: 0, z: 1 };
+    }
     return { x: dx / len, z: dz / len };
 }
 
@@ -506,12 +509,15 @@ function closestTrackT(points, px, pz) {
 // ---- GL HELPERS ----
 function createShader(gl, type, src) {
     const s = gl.createShader(type);
+    if (!s) {
+        throw new Error(`Failed to create ${type === gl.VERTEX_SHADER ? 'vertex' : 'fragment'} shader`);
+    }
     gl.shaderSource(s, src);
     gl.compileShader(s);
     if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
-        console.error(gl.getShaderInfoLog(s));
+        const log = gl.getShaderInfoLog(s);
         gl.deleteShader(s);
-        return null;
+        throw new Error(`Shader compile error (${type === gl.VERTEX_SHADER ? 'vertex' : 'fragment'}): ${log}`);
     }
     return s;
 }
@@ -520,12 +526,16 @@ function createProgram(gl, vsSrc, fsSrc) {
     const vs = createShader(gl, gl.VERTEX_SHADER, vsSrc);
     const fs = createShader(gl, gl.FRAGMENT_SHADER, fsSrc);
     const prog = gl.createProgram();
+    if (!prog) {
+        throw new Error('Failed to create WebGL program');
+    }
     gl.attachShader(prog, vs);
     gl.attachShader(prog, fs);
     gl.linkProgram(prog);
     if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
-        console.error(gl.getProgramInfoLog(prog));
-        return null;
+        const log = gl.getProgramInfoLog(prog);
+        gl.deleteProgram(prog);
+        throw new Error(`Program link error: ${log}`);
     }
     return prog;
 }
@@ -545,11 +555,13 @@ function mat4Perspective(fovy, aspect, near, far) {
 function mat4LookAt(eye, center, up) {
     let zx = eye[0] - center[0], zy = eye[1] - center[1], zz = eye[2] - center[2];
     let len = Math.sqrt(zx * zx + zy * zy + zz * zz);
+    if (len < 1e-10) { len = 1; zz = 1; }
     zx /= len; zy /= len; zz /= len;
     let xx = up[1] * zz - up[2] * zy;
     let xy = up[2] * zx - up[0] * zz;
     let xz = up[0] * zy - up[1] * zx;
     len = Math.sqrt(xx * xx + xy * xy + xz * xz);
+    if (len < 1e-10) { len = 1; xx = 1; }
     xx /= len; xy /= len; xz /= len;
     let yx = zy * xz - zz * xy;
     let yy = zz * xx - zx * xz;
@@ -606,7 +618,15 @@ function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
 // ---- MAIN GAME ----
 const canvas = document.getElementById('gameCanvas');
+if (!canvas) {
+    throw new Error('Could not find game canvas element');
+}
 const gl = canvas.getContext('webgl', { antialias: true, alpha: false });
+if (!gl) {
+    document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#fff;font-size:24px;text-align:center;padding:20px">' +
+        'WebGL is not supported or is disabled in your browser.<br>Please enable WebGL or try a different browser.</div>';
+    throw new Error('WebGL not supported');
+}
 
 // Shaders
 const VS_BASIC = `
@@ -1708,7 +1728,9 @@ function updateHUD() {
 // ---- MINIMAP ----
 function drawMinimap() {
     const mc = document.getElementById('minimapCanvas');
+    if (!mc) return;
     const ctx = mc.getContext('2d');
+    if (!ctx) return;
     ctx.clearRect(0, 0, 160, 160);
 
     const scale = 0.2;
@@ -1804,32 +1826,39 @@ function resize() {
 }
 
 function init() {
-    resize();
-    window.addEventListener('resize', resize);
+    try {
+        resize();
+        window.addEventListener('resize', resize);
 
-    initShaders();
-    initParticles();
+        initShaders();
+        initParticles();
 
-    trackPoints = buildTrack();
-    trackMesh = buildTrackMesh(trackPoints);
-    groundMesh = buildGroundMesh();
-    itemBoxMesh = buildItemBoxMesh();
-    barrierMesh = buildBarrierMesh();
-    treeMesh = buildTreeMesh();
+        trackPoints = buildTrack();
+        trackMesh = buildTrackMesh(trackPoints);
+        groundMesh = buildGroundMesh();
+        itemBoxMesh = buildItemBoxMesh();
+        barrierMesh = buildBarrierMesh();
+        treeMesh = buildTreeMesh();
 
-    carMeshes = CAR_DEFS.map(c => buildCarMesh(c.color));
+        carMeshes = CAR_DEFS.map(c => buildCarMesh(c.color));
 
-    generateScenery();
-    initMenu();
+        generateScenery();
+        initMenu();
 
-    gl.enable(gl.DEPTH_TEST);
-    gl.enable(gl.CULL_FACE);
-    gl.cullFace(gl.BACK);
+        gl.enable(gl.DEPTH_TEST);
+        gl.enable(gl.CULL_FACE);
+        gl.cullFace(gl.BACK);
 
-    requestAnimationFrame(gameLoop);
+        requestAnimationFrame(gameLoop);
+    } catch (e) {
+        console.error('Game initialization failed:', e);
+        document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#fff;font-size:24px;text-align:center;padding:20px">' +
+            'Failed to initialize the game.<br>' + e.message + '</div>';
+    }
 }
 
 function gameLoop(time) {
+    try {
     const dt = Math.min((time - lastTime) / 1000, 0.05);
     lastTime = time;
 
@@ -1876,6 +1905,12 @@ function gameLoop(time) {
     }
 
     render();
+    } catch (e) {
+        console.error('Runtime error in game loop:', e);
+        document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#fff;font-size:24px;text-align:center;padding:20px">' +
+            'A runtime error occurred.<br>' + e.message + '</div>';
+        return;
+    }
     requestAnimationFrame(gameLoop);
 }
 
