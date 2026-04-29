@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:;">
     <title>Drift Kings - WebGL Racing</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -1062,14 +1063,32 @@ let camSmoothTX = 0, camSmoothTY = 0, camSmoothTZ = 0;
 // ---- INIT MENU ----
 function initMenu() {
     const carSel = document.getElementById('carSelect');
-    carSel.innerHTML = '';
+    carSel.textContent = '';
     CAR_DEFS.forEach((c, i) => {
         const div = document.createElement('div');
         div.className = 'car-option' + (i === selectedCar ? ' selected' : '');
-        div.innerHTML = `<div class="car-emoji">${c.emoji}</div><div class="car-name">${c.name}</div>
-            <div class="car-stat">Speed: ${'★'.repeat(Math.round(c.topSpeed/50))}</div>
-            <div class="car-stat">Handling: ${'★'.repeat(Math.round(c.handling*5))}</div>
-            <div class="car-stat">Drift: ${'★'.repeat(Math.round(c.driftFactor*5))}</div>`;
+
+        const emojiEl = document.createElement('div');
+        emojiEl.className = 'car-emoji';
+        emojiEl.textContent = c.emoji;
+        div.appendChild(emojiEl);
+
+        const nameEl = document.createElement('div');
+        nameEl.className = 'car-name';
+        nameEl.textContent = c.name;
+        div.appendChild(nameEl);
+
+        const stats = [
+            ['Speed', '★'.repeat(Math.round(c.topSpeed / 50))],
+            ['Handling', '★'.repeat(Math.round(c.handling * 5))],
+            ['Drift', '★'.repeat(Math.round(c.driftFactor * 5))],
+        ];
+        for (const [label, val] of stats) {
+            const statEl = document.createElement('div');
+            statEl.className = 'car-stat';
+            statEl.textContent = label + ': ' + val;
+            div.appendChild(statEl);
+        }
         div.onclick = () => {
             selectedCar = i;
             document.querySelectorAll('.car-option').forEach(e => e.classList.remove('selected'));
@@ -1079,7 +1098,7 @@ function initMenu() {
     });
 
     const diffSel = document.getElementById('diffSelect');
-    diffSel.innerHTML = '';
+    diffSel.textContent = '';
     DIFFICULTIES.forEach((d, i) => {
         const div = document.createElement('div');
         div.className = 'diff-option' + (i === selectedDifficulty ? ' selected' : '');
@@ -1093,7 +1112,7 @@ function initMenu() {
     });
 
     const lapSel = document.getElementById('lapSelect');
-    lapSel.innerHTML = '';
+    lapSel.textContent = '';
     LAP_OPTIONS.forEach((l, i) => {
         const div = document.createElement('div');
         div.className = 'diff-option' + (l === selectedLaps ? ' selected' : '');
@@ -1663,14 +1682,16 @@ function showResults() {
     document.getElementById('resultsTitle').textContent =
         playerPos === 1 ? 'Victory!' : playerPos <= 3 ? 'Podium Finish!' : 'Race Complete!';
 
-    let html = '';
+    const resultList = document.getElementById('resultList');
+    resultList.textContent = '';
     finishOrder.forEach((r, i) => {
-        const cls = r.isPlayer ? 'result-player' : '';
-        const name = r.isPlayer ? 'You' : `AI ${r.carDef.name}`;
+        const row = document.createElement('div');
+        if (r.isPlayer) row.className = 'result-player';
+        const name = r.isPlayer ? 'You' : 'AI ' + r.carDef.name;
         const time = r.finishTime.toFixed(1) + 's';
-        html += `<div class="${cls}">${i+1}${getPositionSuffix(i+1)} - ${name} (${time})</div>`;
+        row.textContent = (i + 1) + getPositionSuffix(i + 1) + ' - ' + name + ' (' + time + ')';
+        resultList.appendChild(row);
     });
-    document.getElementById('resultList').innerHTML = html;
 }
 
 function updateHUD() {
